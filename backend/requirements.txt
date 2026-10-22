@@ -1,0 +1,14 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+httpx>=0.27
+pydantic>=2.6
+python-dotenv>=1.0
+anthropic>=0.40
+pillow>=10.1
+imageio-ffmpeg>=0.5
+# background removal (optional; the "Remove background" button needs these, ~180MB model downloads on first use)
+rembg>=2.0.50
+onnxruntime>=1.16
+opencv-python-headless>=4.8
+numpy>=1.24
+cryptography
