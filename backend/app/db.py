@@ -93,6 +93,26 @@ CREATE TABLE IF NOT EXISTS videos (
   error TEXT, file TEXT, headline TEXT, cta TEXT, cost_usd REAL,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS subscriptions (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  plan TEXT NOT NULL,
+  billing TEXT NOT NULL DEFAULT 'monthly',   -- monthly|annual (allowances reset monthly either way)
+  anchor TEXT NOT NULL,                      -- date the current plan started; usage periods are monthly from here
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS ledger (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  resource TEXT NOT NULL,                    -- creatives|video_credits|wa_messages
+  delta INTEGER NOT NULL,                    -- negative = consumed, positive = refund/top-up/grant
+  pool TEXT NOT NULL,                        -- plan = monthly allowance, topup = purchased/granted credits
+  kind TEXT NOT NULL,                        -- usage|refund|topup|grant
+  period TEXT,                               -- start date of the allowance period (plan pool)
+  ref TEXT, note TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS ledger_user ON ledger (user_id, resource, pool, period);
+CREATE INDEX IF NOT EXISTS ledger_ref ON ledger (ref);
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);   -- key is "<user_id>:<name>"
 """
 

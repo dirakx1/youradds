@@ -1,4 +1,5 @@
 import hashlib
+import uuid
 import hmac
 import asyncio
 from datetime import datetime, timedelta, timezone
@@ -7,7 +8,7 @@ import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
-from . import creds, sales
+from . import billing, creds, sales
 from .auth import current_user
 from .db import conn
 
@@ -102,13 +103,25 @@ def handle_inbound(user_id: int, phone: str, text: str, name: str = "", wa_id: O
             "SELECT sender, body FROM messages WHERE lead_id=? ORDER BY id", (lead["id"],))]
     if lead["handoff"] or lead["opted_out"] or lead["stage"] in ("won",):
         return lead["id"]
+    ref = f"wa:{uuid.uuid4().hex}"
+    try:
+        billing.spend(user_id, "wa_messages", 1, ref)     # one AI reply = one message; reserved before the LLM call
+    except billing.LimitExceeded as e:
+        with conn() as c:
+            c.execute("INSERT INTO messages (lead_id,direction,sender,body,status) VALUES (?,?,?,?,?)",
+                      (lead["id"], "out", "system", f"AI reply skipped: {e}", "not_sent"))
+        return lead["id"]
     d = sales.decide(user_id, history, text)
     if d.get("opt_out"):
+        billing.refund(user_id, ref)
         with conn() as c:
             c.execute("UPDATE leads SET opted_out=1, stage='lost' WHERE id=?", (lead["id"],))
         return lead["id"]
     if d["reply"]:
-        send(lead, d["reply"], "ai")
+        if send(lead, d["reply"], "ai"):
+            billing.refund(user_id, ref)      # not delivered (e.g. outside the 24h window)
+    else:
+        billing.refund(user_id, ref)
     with conn() as c:
         stage = d["stage"] if lead["stage"] != "qualified" or d["stage"] != "engaged" else "qualified"
         c.execute("UPDATE leads SET stage=?, handoff=? WHERE id=?", (stage, int(d["handoff"]), lead["id"]))
@@ -271,7 +284,14 @@ def run_followups(user_id: Optional[int] = None) -> int:
         if last and last["direction"] == "out" and last["created_at"] > cutoff:
             continue
         msg = "Hi! Just checking in - still interested? Happy to answer any questions."
-        if not send(lead, msg, "ai"):
+        ref = f"wa:{uuid.uuid4().hex}"
+        try:
+            billing.spend(lead["user_id"], "wa_messages", 1, ref)
+        except billing.LimitExceeded:
+            continue
+        if send(lead, msg, "ai"):
+            billing.refund(lead["user_id"], ref)
+        else:
             with conn() as c:
                 c.execute("UPDATE leads SET followups=followups+1 WHERE id=?", (lead["id"],))
             n += 1

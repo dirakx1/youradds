@@ -29,3 +29,4 @@ aside{display:flex;flex-direction:column}.user{margin-top:auto;padding-top:16px;
 body.anon aside{display:none}body.anon main{margin:0 auto;display:grid;place-items:center}
 .authbox{width:min(380px,92vw)}.stack{display:grid;gap:12px}
 a{color:var(--acc)}code{word-break:break-all}.conn button{margin-right:6px}
+.bar{height:8px;border-radius:99px;background:var(--line);overflow:hidden;margin-top:4px}.bar i{display:block;height:100%;background:var(--acc)}.bar i.hot{background:var(--bad)}

@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from PIL import Image, UnidentifiedImageError
 
 from concurrent.futures import ThreadPoolExecutor
-from . import ai, creds, imagegen
+from . import ai, billing, creds, imagegen
 from .auth import current_user
 from .config import CREATIVES_DIR, env
 from .db import conn
@@ -115,8 +115,7 @@ def make_scenes(body: "GenIn", ratios: set[str], key: str):
     return scenes, round(spent, 4), warnings, prompt
 
 
-@router.post("/generate")
-def generate(body: GenIn, user: dict = Depends(current_user)):
+def _check(body: GenIn):
     bad = [p for p in body.platforms if p not in FORMATS]
     if bad:
         raise HTTPException(400, f"unknown platform(s): {bad}")
@@ -124,6 +123,25 @@ def generate(body: GenIn, user: dict = Depends(current_user)):
         raise HTTPException(400, "unknown theme")
     if body.language not in LANGS:
         raise HTTPException(400, "unsupported language")
+
+
+@router.post("/generate")
+def generate(body: GenIn, user: dict = Depends(current_user)):
+    """Reserve plan usage (one per image file) before any paid scene work, and give it back if the run fails."""
+    _check(body)
+    uid = user["id"]
+    if body.scene:
+        billing.require_feature(uid, "scenes")
+    ref = f"creatives:{uuid.uuid4().hex}"
+    billing.spend(uid, "creatives", sum(len(FORMATS[p]) for p in dict.fromkeys(body.platforms)), ref)
+    try:
+        return _generate(body, user)
+    except BaseException:
+        billing.refund(uid, ref)
+        raise
+
+
+def _generate(body: GenIn, user: dict):
     product = _decode_image(body.product_image) if body.product_image else None
     CREATIVES_DIR.mkdir(parents=True, exist_ok=True)
     tests = [t.model_dump() for t in body.testimonials if t.name.strip() and t.text.strip()]

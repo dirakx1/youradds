@@ -10,8 +10,9 @@ async function api(path, opts = {}) {
   });
   if (r.status === 401 && !path.startsWith('/auth/')) { showAuth(); throw new Error('Please log in'); }
   if (!r.ok) {
+    const d402 = r.status === 402 ? ' → see Plan & usage' : '';
     const d = (await r.json().catch(() => ({}))).detail;
-    throw new Error(Array.isArray(d) ? d.map(x => x.msg).join('; ') : d || r.statusText);
+    throw new Error((Array.isArray(d) ? d.map(x => x.msg).join('; ') : d || r.statusText) + d402);
   }
   return r.status === 204 ? null : r.json();
 }
@@ -236,7 +237,7 @@ const views = {
       try {
         const est = await api('/videos/estimate', { method: 'POST', body });
         if (est.total_usd > est.cap_usd) throw new Error(`Estimated $${est.total_usd.toFixed(2)} exceeds your cap of $${est.cap_usd.toFixed(2)} (VIDEO_MAX_USD). Try fewer platforms, a shorter clip or Draft quality.`);
-        if (!confirm(`Estimated cost: ~$${est.total_usd.toFixed(2)} (${Object.keys(est.per_ratio).length} clip(s)). Billed to your Higgsfield balance. Generate?`)) { btn.disabled = false; return; }
+        if (!confirm(`Estimated cost: ~$${est.total_usd.toFixed(2)} (${Object.keys(est.per_ratio).length} clip(s)). ${est.byok ? 'Billed to your Higgsfield balance.' : `Uses ${est.credits} video credits from your plan.`} Generate?`)) { btn.disabled = false; return; }
         await api('/videos/generate', { method: 'POST', body }); await refresh(); poll();
       } catch (x) { $('#err').textContent = x.message; }
       btn.disabled = false;
@@ -320,6 +321,46 @@ const views = {
     $('#f').onsubmit = async e => {
       e.preventDefault(); const q = e.target.q.value; e.target.q.value = ''; add('u', q);
       try { add('a', (await api('/chat', { method: 'POST', body: { question: q } })).answer); } catch (x) { add('a', 'Error: ' + x.message); }
+    };
+  },
+
+  async billing(el) {
+    const b = await api('/billing'), money0 = n => '$' + Number(n).toLocaleString();
+    const bar = (k) => {
+      const u = b.usage[k], pct = u.limit ? Math.min(100, Math.round(u.used / u.limit * 100)) : 0;
+      return `<div style="margin-bottom:14px"><div style="display:flex;justify-content:space-between"><b>${esc(b.resources[k])}</b>
+        <span class="muted">${u.used} / ${u.limit} used${u.topup ? ` · +${u.topup} top-up credits` : ''}</span></div>
+        <div class="bar"><i style="width:${pct}%" class="${pct >= 90 ? 'hot' : ''}"></i></div></div>`;
+    };
+    el.innerHTML = `<h2>Plan &amp; usage</h2>
+      <div class="card"><h3 style="margin-top:0">${esc(b.plan_name)} <span class="muted">· ${esc(b.billing)} · resets ${esc(b.period_end)}</span></h3>
+        ${Object.keys(b.resources).map(bar).join('')}
+        <p class="muted">Video credits: 1 credit = 1 second of 480p video (720p = 2.2 credits). Using your own Higgsfield key costs no credits.
+        Unused monthly allowance does not roll over; top-up credits never expire.</p></div>
+      <div class="card scroll"><table><tr><th>Plan<th>Monthly<th>Annual (per mo)<th>Creatives<th>Video credits<th>WhatsApp AI msgs<th>Includes
+        ${Object.entries(b.plans).map(([k, p]) => `<tr${k === b.plan ? ' style="background:var(--bg)"' : ''}><td><b>${esc(p.name)}</b>${k === b.plan ? ' (yours)' : ''}<td>${money0(p.price_month)}<td>${p.price_year ? money0(Math.round(p.price_year / 12)) : '–'}
+          <td>${p.limits.creatives}<td>${p.limits.video_credits}<td>${p.limits.wa_messages}
+          <td class="muted">${Object.entries(p.features).filter(([, v]) => v).map(([f]) => esc(b.feature_labels[f])).join(', ') || 'basic only'}`).join('')}</table>
+        <p class="muted">Online checkout is not enabled yet — ask the administrator to change your plan or add credits
+        (packs: ${b.topup_packs.map(p => `${p.credits} credits ${money0(p.usd)}`).join(' · ')}).</p></div>
+      <div class="card scroll"><h3 style="margin-top:0">Recent activity</h3><table><tr><th>When<th>What<th>Change<th>From
+        ${b.ledger.map(l => `<tr><td>${esc(l.created_at)}<td>${esc(b.resources[l.resource])} · ${esc(l.kind)}${l.note ? ' · ' + esc(l.note) : ''}<td>${l.delta > 0 ? '+' : ''}${l.delta}<td>${esc(l.pool)}`).join('') || '<tr><td colspan=4 class="muted">Nothing yet'}</table></div>
+      <div id="adm"></div>`;
+    if (!b.is_admin) return;
+    const us = await api('/admin/users');
+    $('#adm', el).innerHTML = `<div class="card scroll"><h3 style="margin-top:0">Admin · users</h3><table><tr><th>User<th>Plan<th>Billing<th>Grant credits
+      ${us.map(u => `<tr data-u="${u.id}"><td>${esc(u.email)}<td><select class="pl">${Object.entries(b.plans).map(([k, p]) => `<option value="${k}"${k === u.plan ? ' selected' : ''}>${esc(p.name)}`).join('')}</select>
+        <td><select class="bl"><option${u.billing === 'monthly' ? ' selected' : ''}>monthly<option${u.billing === 'annual' ? ' selected' : ''}>annual</select>
+        <button class="setp">Set plan</button><td><select class="gr">${Object.entries(b.resources).map(([k, v]) => `<option value="${k}">${esc(v)}`).join('')}</select>
+        <input class="ga" type="number" min="1" placeholder="amount" style="width:90px"> <button class="grant">Grant</button>`).join('')}</table>
+      <p class="muted">Changing a plan starts a fresh monthly allowance today. Admins are set with ADMIN_EMAILS (default: the first account).</p></div>`;
+    $('#adm', el).onclick = async e => {
+      const tr = e.target.closest('tr[data-u]'); if (!tr || !e.target.closest('button')) return;
+      try {
+        if (e.target.classList.contains('setp')) await api(`/admin/users/${tr.dataset.u}/plan`, { method: 'PUT', body: { plan: $('.pl', tr).value, billing: $('.bl', tr).value } });
+        else await api(`/admin/users/${tr.dataset.u}/grant`, { method: 'POST', body: { resource: $('.gr', tr).value, amount: +$('.ga', tr).value } });
+        views.billing(el);
+      } catch (x) { alert(x.message); }
     };
   },
 

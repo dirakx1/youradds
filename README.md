@@ -28,6 +28,18 @@ Open http://localhost:8000. API docs at `/docs`.
 - Operator settings live in `backend/.env` (see `.env.example`): `ALLOW_SIGNUP`, `YOURADS_SECRET_KEY` (back it up),
   `SHARED_HIGGSFIELD`. The Anthropic key is server-wide, so AI copy/chat/WhatsApp-agent usage is billed to the operator.
 
+## Plans, limits and credits
+
+- Plans (Free, Starter, Growth, Scale, Agency) are defined in `backend/app/billing.py`: monthly allowances for static
+  creatives, video credits and WhatsApp AI messages, plus feature gates (AI scenes, video, ad platforms, WhatsApp).
+- Every use is written to a ledger. Usage is reserved *before* paid work starts and refunded if it fails (Higgsfield
+  rejects/cancels the clip, the WhatsApp message isn't delivered, a creative run errors). Monthly allowances reset on the
+  plan's monthly anniversary; purchased/granted top-up credits don't expire and are used after the allowance.
+- Video: 1 credit = 1 s of 480p (720p = 2.2). A user with their **own Higgsfield key** pays Higgsfield directly and uses no
+  credits; credits apply only when the operator enables `SHARED_HIGGSFIELD`.
+- **No payments yet**: an admin sets plans and grants credits on the *Plan & usage* page (Stripe checkout is the next step).
+  Not metered: AI copy/chat calls (small cost) and multiple ad accounts/seats per plan.
+
 ## Creative Studio
 Tab **Creatives**: generates image ads for Meta (1080×1080, 1080×1350, 9:16 Story/Reel), TikTok (9:16) and Google
 Display (1200×628, 1200×1200, 300×250) from a product name + optional product photo. Each platform gets its own

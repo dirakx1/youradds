@@ -1,11 +1,12 @@
 import asyncio
 from pathlib import Path
 from typing import Literal, Optional
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import ai, auth, creds
+from . import ai, auth, billing, creds
 from .auth import current_user
 from .config import PLATFORMS
 from .db import conn, init_db, synth_metrics
@@ -15,11 +16,20 @@ from . import whatsapp, creatives, videos, cutout
 app = FastAPI(title="yourads - open-source AI ads manager")
 app.include_router(auth.router)
 app.include_router(creds.router)
+app.include_router(billing.router)
+app.include_router(billing.admin)
 app.include_router(whatsapp.hook)
 app.include_router(whatsapp.router)
 app.include_router(creatives.router)
 app.include_router(videos.router)
 app.include_router(cutout.router)
+
+
+@app.exception_handler(billing.LimitExceeded)
+async def _limit(_: Request, e: billing.LimitExceeded):
+    return JSONResponse({"detail": str(e), "upgrade": True}, status_code=402)
+
+
 Platform = Literal["meta", "tiktok", "google"]
 
 

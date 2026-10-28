@@ -14,7 +14,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from . import ai, creds, imagegen
+from . import ai, billing, creds, imagegen
 from .auth import current_user
 from .config import CREATIVES_DIR, env
 from .creatives import LANGS, _decode_image
@@ -69,6 +69,10 @@ def _validate(body: VidIn, user_id: int) -> str:
     return key
 
 
+def _credits(body: VidIn, per_ratio: dict) -> int:
+    return len(per_ratio) * billing.video_credits(body.duration, body.resolution)
+
+
 def _plan(body: VidIn):
     prompt = ai.video_prompt(body.description, body.tone, body.theme, body.scene_hint, body.duration)
     ratios = sorted({v[2] for p in dict.fromkeys(body.platforms) for v in VIDEO_FORMATS[p].values()})
@@ -80,7 +84,9 @@ def _plan(body: VidIn):
 def estimate(body: VidIn, user: dict = Depends(current_user)):
     _validate(body, user["id"])
     _, est, total = _plan(body)
-    return {"per_ratio": est, "total_usd": total, "cap_usd": _cap()}
+    src, _k = creds.higgsfield_source(user["id"])
+    return {"per_ratio": est, "total_usd": total, "cap_usd": _cap(), "byok": src == "own",
+            "credits": 0 if src == "own" else _credits(body, est)}
 
 
 @router.post("/generate", status_code=202)
@@ -90,7 +96,21 @@ def generate(body: VidIn, bg: BackgroundTasks, user: dict = Depends(current_user
     prompt, est, total = _plan(body)
     if total > _cap():
         raise HTTPException(400, f"estimated cost ${total:.2f} exceeds VIDEO_MAX_USD (${_cap():.2f})")
+    uid = user["id"]
+    billing.require_feature(uid, "video")
     job = uuid.uuid4().hex
+    # Your own Higgsfield key = billed by Higgsfield, no credits. The operator's shared key = plan credits (per clip).
+    refs = []
+    if creds.higgsfield_source(uid)[0] == "shared":
+        per = billing.video_credits(body.duration, body.resolution)
+        try:
+            for ratio in est:
+                billing.spend(uid, "video_credits", per, f"video:{job}:{ratio}", f"{ratio} {body.duration}s {body.resolution}")
+                refs.append(f"video:{job}:{ratio}")
+        except Exception:
+            for r in refs:
+                billing.refund(uid, r)
+            raise
     JOBS_DIR.mkdir(parents=True, exist_ok=True)
     if product is not None:
         product.save(JOBS_DIR / f"{job}.png")
@@ -106,7 +126,7 @@ def generate(body: VidIn, bg: BackgroundTasks, user: dict = Depends(current_user
                                 (user["id"], p, fmt, w, h, ratio, body.duration, round(share, 4), job, params))
                 ids.append(cur.lastrowid)
     bg.add_task(run_job, ids)
-    return {"videos": ids, "estimated_usd": total}
+    return {"videos": ids, "estimated_usd": total, "credits": len(refs) * billing.video_credits(body.duration, body.resolution)}
 
 
 def _set(ids, **kw):
@@ -172,6 +192,8 @@ def run_job(ids):
                 msg = str(e)[:200]
                 if msg == "timed out":
                     msg = "still processing at Higgsfield after 40 min - use 'Check again' later"
+                else:   # Higgsfield failed/rejected it (not billed by them): give the credits back
+                    billing.refund(rows[0]["user_id"], f"video:{rows[0]['job']}:{ratio}")
                 errors[ratio] = msg
 
         ratios = sorted({r["ratio"] for r in rows})
@@ -204,6 +226,9 @@ def run_job(ids):
 def recover():
     """After a restart: re-attach to clips already submitted to Higgsfield; fail rows that never were."""
     with conn() as c:
+        for r in c.execute("SELECT DISTINCT user_id,job,ratio FROM videos WHERE status IN ('queued','generating',"
+                           "'compositing') AND (status_url IS NULL OR status_url='')").fetchall():
+            billing.refund(r["user_id"], f"video:{r['job']}:{r['ratio']}")
         c.execute("UPDATE videos SET status='failed', error='interrupted by server restart before submission'"
                   " WHERE status IN ('queued','generating','compositing') AND (status_url IS NULL OR status_url='')")
         pending = [r["id"] for r in c.execute(
@@ -244,6 +269,7 @@ def cancel(vid: int, user: dict = Depends(current_user)):
     with conn() as c:
         c.execute("UPDATE videos SET status='failed', error='canceled (refunded)', provider_status='canceled',"
                   " cost_usd=0 WHERE job=? AND request_id=?", (r["job"], r["request_id"]))
+    billing.refund(user["id"], f"video:{r['job']}:{r['ratio']}")
     return {"ok": True}
 
 

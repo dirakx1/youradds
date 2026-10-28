@@ -9,6 +9,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from . import billing
 from .auth import current_user
 from .config import SECRET_KEY_FILE, SHARED_HIGGSFIELD, env
 from .db import conn
@@ -87,14 +88,23 @@ def connected(user_id: int, service: str) -> bool:
     return bool(v) and all(v.get(f["name"]) for f in SERVICES[service]["fields"] if f.get("required"))
 
 
-def higgsfield_key(user_id: int) -> str:
-    """The user's own key; the server's key only if the operator explicitly opted in to sharing it."""
+def higgsfield_source(user_id: int):
+    """('own', key) = user's key, billed to them; ('shared', key) = operator's key, paid for with plan credits
+    (only if SHARED_HIGGSFIELD is on); (None, '') = no key."""
     k = get(user_id, "higgsfield").get("api_key", "")
-    if not k and SHARED_HIGGSFIELD:
+    if ":" in k:
+        return "own", k
+    if SHARED_HIGGSFIELD:
         k = env("HIGGSFIELD_API_KEY")
         if k and ":" not in k and env("HIGGSFIELD_API_SECRET"):
             k = f"{k}:{env('HIGGSFIELD_API_SECRET')}"
-    return k if ":" in k else ""
+        if ":" in k:
+            return "shared", k
+    return None, ""
+
+
+def higgsfield_key(user_id: int) -> str:
+    return higgsfield_source(user_id)[1]
 
 
 def _mask(v: str) -> str:
@@ -132,6 +142,7 @@ class ConnIn(BaseModel):
 def save(service: str, body: ConnIn, user: dict = Depends(current_user)):
     if service not in SERVICES:
         raise HTTPException(404, "unknown service")
+    billing.require_feature(user["id"], {"higgsfield": "video", "whatsapp": "whatsapp"}.get(service, "ad_platforms"))
     names = {f["name"]: f for f in SERVICES[service]["fields"]}
     cur = get(user["id"], service)
     for k, v in body.values.items():
