@@ -1,14 +1,23 @@
+import { auth } from './auth.js?v=sidebar-profile-1';
+
+const authPollers = new Set();
+
 const $ = (s, el = document) => el.querySelector(s);
 const money = n => '$' + Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pill = p => `<span class="pill ${esc(p)}">${esc(p)}</span>`;
 
 async function api(path, opts = {}) {
+  const token = await auth.token();
+  if (!token && path !== '/auth/config') { showAuth(); throw new Error('Please sign in.'); }
+  const headers = new Headers(opts.headers || {});
+  if (!headers.has('Content-Type') && opts.body) headers.set('Content-Type', 'application/json');
+  if (token) headers.set('Authorization', `Bearer ${token}`);
   const r = await fetch('/api' + path, {
-    headers: { 'Content-Type': 'application/json' }, ...opts,
+    ...opts, headers,
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
-  if (r.status === 401 && !path.startsWith('/auth/')) { showAuth(); throw new Error('Please log in'); }
+  if (r.status === 401 && !path.startsWith('/auth/')) { showAuth(); throw new Error('Your session ended. Please sign in again.'); }
   if (!r.ok) {
     const d = (await r.json().catch(() => ({}))).detail;
     throw new Error(Array.isArray(d) ? d.map(x => x.msg).join('; ') : d || r.statusText);
@@ -199,11 +208,11 @@ const views = {
         ${v.request_id && v.status !== 'done' ? `<p class="muted" style="font-size:11px;margin:6px 0 0">Request ${esc(v.request_id)}</p>` : ''}</div>`).join('') || '<p class="muted">No videos yet.</p>';
     };
     const refresh = async () => {
-      if (location.hash !== '#videos') return clearInterval(timer);
+      if (location.hash !== '#videos') { if (timer) { clearInterval(timer); authPollers.delete(timer); timer = null; } return; }
       const list = await api('/videos'); render(list);
-      if (!list.some(v => ['queued', 'generating', 'compositing'].includes(v.status))) { clearInterval(timer); timer = null; }
+      if (!list.some(v => ['queued', 'generating', 'compositing'].includes(v.status))) { if (timer) { clearInterval(timer); authPollers.delete(timer); timer = null; } }
     };
-    const poll = () => { clearInterval(timer); timer = setInterval(refresh, 4000); };
+    const poll = () => { if (timer) { clearInterval(timer); authPollers.delete(timer); } timer = setInterval(refresh, 4000); authPollers.add(timer); };
     el.innerHTML = `<h2>Video Studio <span class="muted">· AI background video + your product, text and CTA</span></h2>
       ${opt.scene_available ? '' : '<p class="toast">Add your Higgsfield API key on the <a href="#connections">Connections</a> page to enable video.</p>'}
       <div class="card"><form id="f" class="row">
@@ -359,32 +368,98 @@ const views = {
 };
 
 // ---- accounts ----
-function showAuth(mode = 'login') {
+function authButton(button, loading) {
+  if (!button) return;
+  button.classList.toggle('is-loading', loading);
+  button.disabled = loading;
+  button.setAttribute('aria-busy', String(loading));
+}
+
+function showAuth() {
   document.body.classList.add('anon');
   const el = $('#view'); el.onclick = null;
-  const reg = mode === 'register';
-  el.innerHTML = `<div class="card authbox"><h2>${reg ? 'Create your account' : 'Log in'}</h2>
-    <form id="authf" class="stack">
-      ${reg ? '<label>Name<input name="name" autocomplete="name" maxlength="80"></label>' : ''}
-      <label>Email<input name="email" type="email" required autocomplete="email"></label>
-      <label>Password${reg ? ' (min 8 characters)' : ''}<input name="password" type="password" required minlength="${reg ? 8 : 1}" autocomplete="${reg ? 'new-password' : 'current-password'}"></label>
-      <button class="pri" type="submit">${reg ? 'Sign up' : 'Log in'}</button>
-      <span class="toast" id="autherr"></span></form>
-    <p class="muted">${reg ? 'Have an account? <a href="#" id="swap">Log in</a>' : 'New here? <a href="#" id="swap">Create an account</a>'}</p></div>`;
-  $('#swap').onclick = e => { e.preventDefault(); showAuth(reg ? 'login' : 'register'); };
-  $('#authf').onsubmit = async e => {
-    e.preventDefault();
-    try { await api('/auth/' + mode, { method: 'POST', body: Object.fromEntries(new FormData(e.target)) }); await boot(); }
-    catch (x) { $('#autherr').textContent = x.message; }
+  const path = location.pathname;
+  let mode = path === '/sign-up' ? 'signup' : path === '/forgot-password' ? 'reset' : path === '/account' ? 'account' : 'signin';
+  let busy = false, email = '', name = '';
+  const error = (message) => { const node = $('#autherr', el); if (node) node.textContent = message; };
+  const render = (screen = mode, stage = 'form') => {
+    mode = screen;
+    const heading = { signin: 'Welcome back', signup: 'Create your account', reset: 'Reset your password', account: 'Your account', callback: 'Finishing sign in', loading: 'Connecting securely' }[screen] || 'Sign in';
+    const form = screen === 'signin' || screen === 'signup';
+    el.innerHTML = `<div class="card authbox"><h2>${heading}</h2><p class="muted">Use yourads securely with email or Google.</p>
+      ${form ? `<button type="button" id="google" class="google-signin"><img src="https://developers.google.com/static/identity/images/g-logo.png" alt="" width="20" height="20">Continue with Google</button><p class="auth-divider"><span>OR</span></p>` : ''}
+      <p class="toast" id="autherr" role="alert" aria-live="polite"></p>
+      ${screen === 'signin' ? `<form id="authf" class="stack"><label>Email<input name="email" type="email" required autocomplete="email"></label><label>Password<input name="password" type="password" required autocomplete="current-password"></label><button class="pri">Sign in</button><a class="forgot-password" href="/forgot-password">Forgot password?</a></form><p class="muted">New here? <a href="/sign-up">Create an account</a></p>` : ''}
+      ${screen === 'signup' && stage === 'form' ? `<form id="authf" class="stack"><div id="clerk-captcha"></div><label>Name (optional)<input name="name" autocomplete="name" maxlength="80"></label><label>Email<input name="email" type="email" required autocomplete="email"></label><label>Password<input name="password" type="password" required minlength="8" autocomplete="new-password"></label><button class="pri">Create account</button></form><p class="muted">Already registered? <a href="/sign-in">Sign in</a></p>` : ''}
+      ${screen === 'signup' && stage === 'verify' ? `<form id="verifyf" class="stack"><p>Enter the code sent to <b>${esc(email)}</b>.</p><label>Email verification code<input name="code" inputmode="numeric" autocomplete="one-time-code" required></label><button class="pri">Verify email</button><button type="button" id="resend">Send a new code</button></form>` : ''}
+      ${screen === 'signin' && stage === 'device' ? `<form id="devicef" class="stack"><p>Enter the verification code sent to your email.</p><label>Email verification code<input name="code" inputmode="numeric" autocomplete="one-time-code" required></label><button class="pri">Verify device</button><button type="button" id="resend">Send a new code</button></form>` : ''}
+      ${screen === 'reset' ? `<form id="resetf" class="stack"><label>Email<input name="email" type="email" required autocomplete="email" value="${esc(email)}"></label>${stage !== 'form' ? `<label>Verification code<input name="code" inputmode="numeric" autocomplete="one-time-code" required></label><label>New password<input name="password" type="password" minlength="8" autocomplete="new-password" required></label>` : ''}<button class="pri">${stage === 'form' ? 'Send reset code' : 'Reset password'}</button></form><a href="/sign-in">Back to sign in</a>` : ''}
+      ${screen === 'account' ? `<p>${esc(window.__youradsMe?.email || '')}</p><form id="passwordf" class="stack"><label>Current password<input name="current" type="password" autocomplete="current-password" required></label><label>New password<input name="next" type="password" minlength="8" autocomplete="new-password" required></label><button class="pri">Update password</button></form><button id="signout">Sign out</button>` : ''}
+      ${screen === 'callback' ? '<p class="muted">Please wait while your secure session is confirmed.</p><button type="button" id="retry">Try Google sign-in again</button><a href="/sign-in">Back to sign in</a>' : ''}
+      </div>`;
+    if (screen === 'loading') return;
+    const google = $('#google', el); if (google) google.onclick = async () => { if (busy) return; busy = true; authButton(google, true); try { await auth.google(); } catch (x) { busy = false; authButton(google, false); error(x.message); } };
+    const formEl = $('#authf', el); if (formEl) formEl.onsubmit = async e => {
+      e.preventDefault(); if (busy) return; busy = true;
+      const submit = formEl.querySelector('[type="submit"],button:not([type])'); authButton(submit, true);
+      const values = Object.fromEntries(new FormData(formEl)); email = values.email; name = values.name || '';
+      try { if (mode === 'signup') { const result = await auth.signUp(email, values.password, name); if (result.needsVerification) render('signup', 'verify'); else await boot(); } else { const result = await auth.signIn(email, values.password); if (result.needsDeviceTrust) render('signin', 'device'); else await boot(); } }
+      catch (x) { error(x.message); } finally { busy = false; authButton(submit, false); }
+    };
+    const verify = $('#verifyf', el); if (verify) verify.onsubmit = async e => { e.preventDefault(); if (busy) return; busy = true; const b = verify.querySelector('button[type="submit"],button:not([type])'); authButton(b, true); try { await auth.verifySignup(new FormData(verify).get('code')); await boot(); } catch (x) { error(x.message); } finally { busy = false; authButton(b, false); } };
+    const resend = $('#resend', el); if (resend) resend.onclick = async () => { if (busy) return; busy = true; authButton(resend, true); try { await auth.resendSignupCode(); error('A new verification code was sent.'); } catch (x) { error(x.message); } finally { busy = false; authButton(resend, false); resend.disabled = true; setTimeout(() => { if (resend.isConnected) resend.disabled = false; }, 30000); } };
+    const device = $('#devicef', el); if (device) device.onsubmit = async e => { e.preventDefault(); if (busy) return; busy = true; const b = device.querySelector('button[type="submit"],button:not([type])'); authButton(b, true); try { await auth.verifyDeviceTrust(new FormData(device).get('code')); await boot(); } catch (x) { error(x.message); } finally { busy = false; authButton(b, false); } };
+    if (resend && mode === 'signin') resend.onclick = async () => { if (busy) return; busy = true; authButton(resend, true); try { await auth.resendDeviceTrustCode(); error('A new verification code was sent.'); } catch (x) { error(x.message); } finally { busy = false; authButton(resend, false); resend.disabled = true; setTimeout(() => { if (resend.isConnected) resend.disabled = false; }, 30000); } };
+    const reset = $('#resetf', el); if (reset) reset.onsubmit = async e => { e.preventDefault(); if (busy) return; busy = true; const b = reset.querySelector('button[type="submit"],button:not([type])'); authButton(b, true); const v = Object.fromEntries(new FormData(reset)); email = v.email; try { const result = await auth.resetPassword(v.email, v.code, v.password); if (result.needsCode) { render('reset', 'code'); error('If the account exists, a reset code has been sent.'); } else if (result.needsPassword) render('reset', 'password'); else if (result.complete) await boot(); } catch (x) { error(x.message); } finally { busy = false; authButton(b, false); } };
+    const password = $('#passwordf', el); if (password) password.onsubmit = async e => { e.preventDefault(); if (busy) return; busy = true; const b = $('button', password); authButton(b, true); try { await auth.updatePassword(new FormData(password).get('current'), new FormData(password).get('next')); password.reset(); error('Password updated.'); } catch (x) { error(x.message); } finally { busy = false; authButton(b, false); } };
+    const signout = $('#signout', el); if (signout) signout.onclick = async () => { authButton(signout, true); try { await auth.signOut(); location.replace('/sign-in'); } catch (x) { authButton(signout, false); error(x.message); } };
+  const retry = $('#retry', el); if (retry) retry.onclick = async () => { authButton(retry, true); try { await auth.google(); } catch (x) { authButton(retry, false); error(x.message); } };
   };
+  async function callback() {
+    render('callback');
+    try {
+      await auth.completeGoogle();
+      if (await auth.token()) { location.replace('/'); return; }
+      error('Clerk returned without an active session. Retry Google sign-in or return to the sign-in page.');
+    } catch (x) { error(x.message || 'Google sign-in could not be completed. Retry or return to sign in.'); }
+  }
+  if (mode === 'callback' || path === '/sso-callback') { mode = 'callback'; callback(); return; }
+  if (mode === 'account') {
+    render('loading');
+    (async () => { try { await auth.init(); if (!await auth.token()) return location.replace('/sign-in');
+      window.__youradsMe = await api('/auth/me'); document.body.classList.remove('anon'); render('account');
+    } catch (x) { render('account'); error(x.message); } })();
+    return;
+  }
+  if (mode === 'reset') { render('reset'); return; }
+  render(mode);
 }
 
 async function boot() {
   let me;
-  try { me = await api('/auth/me'); } catch { return showAuth(); }
+  try { await auth.init(); if (!await auth.token()) return showAuth(); me = await api('/auth/me'); }
+  catch (e) { showAuth(); return null; }
+  window.__youradsMe = me;
+  if (location.pathname.startsWith('/sign-') || location.pathname === '/forgot-password') location.replace('/');
   document.body.classList.remove('anon');
-  $('#who').textContent = me.name || me.email;
+  const displayName = me.name || me.email;
+  $('#who-name').textContent = displayName;
+  $('#who-email').textContent = me.email;
+  $('#menu-name').textContent = displayName;
+  $('#menu-email').textContent = me.email;
+  const avatar = $('#avatar');
+  avatar.textContent = displayName.trim().split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase();
+  const imageUrl = auth.clerk?.user?.imageUrl;
+  if (imageUrl && new URL(imageUrl).protocol === 'https:') {
+    const image = document.createElement('img');
+    image.className = 'avatar-image';
+    image.alt = '';
+    image.src = imageUrl;
+    image.onerror = () => image.remove();
+    avatar.append(image);
+  }
   route();
+  return me;
 }
 
 async function route() {
@@ -395,5 +470,38 @@ async function route() {
   catch (x) { el.innerHTML = `<p class="toast">${esc(x.message)}</p>`; }
 }
 addEventListener('hashchange', () => { if (!document.body.classList.contains('anon')) route(); });
-$('#logout').onclick = async () => { await api('/auth/logout', { method: 'POST' }); showAuth(); };
-boot();
+addEventListener('yourads:signed-out', () => {
+  for (const timer of authPollers) clearInterval(timer);
+  authPollers.clear();
+  $('#who-name').textContent = '';
+  $('#who-email').textContent = '';
+  $('#view').replaceChildren();
+  document.body.classList.add('anon');
+});
+const profileButton = $('#profile-button'), profileMenu = $('#profile-menu');
+const navToggle = $('#nav-toggle'), primaryNav = $('#primary-nav'), navBackdrop = $('#nav-backdrop');
+function closeNav() { navToggle.setAttribute('aria-expanded', 'false'); navToggle.setAttribute('aria-label', 'Open navigation'); primaryNav.classList.remove('open'); primaryNav.inert = true; navBackdrop.hidden = true; }
+navToggle.onclick = () => {
+  const open = navToggle.getAttribute('aria-expanded') !== 'true';
+  navToggle.setAttribute('aria-expanded', String(open));
+  navToggle.setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
+  primaryNav.classList.toggle('open', open);
+  primaryNav.inert = !open;
+  navBackdrop.hidden = !open;
+};
+navBackdrop.onclick = closeNav;
+primaryNav.addEventListener('click', e => { if (e.target.closest('a')) closeNav(); });
+profileButton.onclick = () => {
+  const open = profileButton.getAttribute('aria-expanded') !== 'true';
+  profileButton.setAttribute('aria-expanded', String(open));
+  profileMenu.hidden = !open;
+};
+document.addEventListener('click', e => {
+  if (!e.target.closest('.user')) { profileButton.setAttribute('aria-expanded', 'false'); profileMenu.hidden = true; }
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { profileButton.setAttribute('aria-expanded', 'false'); profileMenu.hidden = true; closeNav(); profileButton.focus(); }
+});
+$('#logout').onclick = async e => { authButton(e.currentTarget, true); try { await auth.signOut(); location.replace('/sign-in'); } catch (x) { authButton(e.currentTarget, false); alert(x.message || 'Could not sign out. Please try again.'); } };
+if (location.pathname !== '/') showAuth();
+else boot().catch(showAuth);
