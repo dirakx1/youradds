@@ -6,10 +6,13 @@ from typing import Optional
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.dialects.postgresql import insert
 
 from . import creds, sales
 from .auth import current_user
-from .db import conn
+from .db import session_scope
+from .models import Campaign, Lead, Message, Metric, User
 
 router = APIRouter(prefix="/api", dependencies=[Depends(current_user)])
 hook = APIRouter(prefix="/api")      # public: called by Meta, authenticated by per-user key + signature
@@ -42,9 +45,8 @@ def _post(cfg: dict, payload: dict) -> str:
 
 
 def _store_out(lead_id: int, sender: str, body: str, status: str, wa_id: Optional[str] = None):
-    with conn() as c:
-        c.execute("INSERT INTO messages (lead_id,direction,sender,body,wa_id,status) VALUES (?,?,?,?,?,?)",
-                  (lead_id, "out", sender, body, wa_id, status))
+    with session_scope() as session:
+        session.add(Message(lead_id=lead_id, direction="out", sender=sender, body=body, wa_id=wa_id, status=status))
 
 
 def send(lead: dict, body: str, sender: str, template: Optional[str] = None) -> Optional[str]:
@@ -71,8 +73,8 @@ def send(lead: dict, body: str, sender: str, template: Optional[str] = None) -> 
         return str(e)
 
 
-def _lead(c, lead_id: int, user_id: int) -> dict:
-    r = c.execute("SELECT * FROM leads WHERE id=? AND user_id=?", (lead_id, user_id)).fetchone()
+def _lead(session, lead_id: int, user_id: int) -> dict:
+    r = session.execute(select(*Lead.__table__.columns).where(Lead.id == lead_id, Lead.user_id == user_id)).mappings().one_or_none()
     if not r:
         raise HTTPException(404, "lead not found")
     return dict(r)
@@ -81,47 +83,57 @@ def _lead(c, lead_id: int, user_id: int) -> dict:
 def handle_inbound(user_id: int, phone: str, text: str, name: str = "", wa_id: Optional[str] = None,
                    referral: Optional[str] = None, campaign_id: Optional[int] = None) -> int:
     """Store an inbound message, then let the AI agent answer unless a human owns the chat."""
-    with conn() as c:
-        if wa_id and c.execute("SELECT 1 FROM messages WHERE wa_id=?", (wa_id,)).fetchone():
-            return -1  # duplicate webhook delivery
+    with session_scope() as session:
+        if wa_id and session.scalar(select(Message.id).where(Message.wa_id == wa_id)) is not None:
+            return -1
         if referral and not campaign_id:
-            r = c.execute("SELECT id FROM campaigns WHERE external_id=? AND user_id=?", (referral, user_id)).fetchone()
-            campaign_id = r["id"] if r else None
-        if campaign_id and not c.execute("SELECT 1 FROM campaigns WHERE id=? AND user_id=?",
-                                         (campaign_id, user_id)).fetchone():
+            campaign_id = session.scalar(select(Campaign.id).where(Campaign.external_id == referral,
+                                                                    Campaign.user_id == user_id).limit(1))
+        if campaign_id and session.scalar(select(Campaign.id).where(Campaign.id == campaign_id,
+                                                                    Campaign.user_id == user_id)) is None:
             campaign_id = None
-        c.execute("INSERT OR IGNORE INTO leads (user_id,phone,name,campaign_id,referral) VALUES (?,?,?,?,?)",
-                  (user_id, phone, name, campaign_id, referral))
-        lead = dict(c.execute("SELECT * FROM leads WHERE phone=? AND user_id=?", (phone, user_id)).fetchone())
-        c.execute("UPDATE leads SET last_inbound_at=CURRENT_TIMESTAMP, followups=0, name=COALESCE(NULLIF(?,''),name)"
-                  " WHERE id=?", (name, lead["id"]))
-        c.execute("INSERT INTO messages (lead_id,direction,sender,body,wa_id) VALUES (?,?,?,?,?)",
-                  (lead["id"], "in", "lead", text, wa_id))
-        lead = _lead(c, lead["id"], user_id)
-        history = [dict(r) for r in c.execute(
-            "SELECT sender, body FROM messages WHERE lead_id=? ORDER BY id", (lead["id"],))]
+        lead_insert = insert(Lead).values(user_id=user_id, phone=phone, name=name or None,
+                                           campaign_id=campaign_id, referral=referral)
+        session.execute(lead_insert.on_conflict_do_nothing(index_elements=[Lead.user_id, Lead.phone]))
+        lead_id = session.scalar(select(Lead.id).where(Lead.phone == phone, Lead.user_id == user_id))
+        message_insert = insert(Message).values(lead_id=lead_id, direction="in", sender="lead", body=text, wa_id=wa_id)
+        if wa_id:
+            message_id = session.scalar(message_insert.on_conflict_do_nothing(index_elements=[Message.wa_id])
+                                        .returning(Message.id))
+            if message_id is None:
+                return -1
+        else:
+            session.execute(message_insert)
+        now = _now().strftime("%Y-%m-%d %H:%M:%S")
+        session.execute(update(Lead).where(Lead.id == lead_id).values(
+            last_inbound_at=now, followups=0, name=func.coalesce(func.nullif(name, ""), Lead.name)))
+        lead = _lead(session, lead_id, user_id)
+        history = [dict(r) for r in session.execute(select(Message.sender, Message.body)
+                                                    .where(Message.lead_id == lead_id).order_by(Message.id)).mappings()]
     if lead["handoff"] or lead["opted_out"] or lead["stage"] in ("won",):
         return lead["id"]
     d = sales.decide(user_id, history, text)
     if d.get("opt_out"):
-        with conn() as c:
-            c.execute("UPDATE leads SET opted_out=1, stage='lost' WHERE id=?", (lead["id"],))
+        with session_scope() as session:
+            session.execute(update(Lead).where(Lead.id == lead["id"], Lead.user_id == user_id)
+                            .values(opted_out=1, stage="lost"))
         return lead["id"]
     if d["reply"]:
         send(lead, d["reply"], "ai")
-    with conn() as c:
+    with session_scope() as session:
         stage = d["stage"] if lead["stage"] != "qualified" or d["stage"] != "engaged" else "qualified"
-        c.execute("UPDATE leads SET stage=?, handoff=? WHERE id=?", (stage, int(d["handoff"]), lead["id"]))
+        session.execute(update(Lead).where(Lead.id == lead["id"], Lead.user_id == user_id)
+                        .values(stage=stage, handoff=int(d["handoff"])))
     return lead["id"]
 
 
 # ---- webhook (Meta calls these; one URL per user: /api/whatsapp/webhook/<webhook_key>) ----
 def _hook_user(key: str) -> int:
-    with conn() as c:
-        r = c.execute("SELECT id FROM users WHERE webhook_key=?", (key,)).fetchone()
-    if not r:
+    with session_scope() as session:
+        uid = session.scalar(select(User.id).where(User.webhook_key == key))
+    if not uid:
         raise HTTPException(404, "unknown webhook")
-    return r["id"]
+    return uid
 
 
 @hook.get("/whatsapp/webhook/{key}")
@@ -135,8 +147,8 @@ def verify(key: str, request: Request):
 
 @hook.post("/whatsapp/webhook/{key}")
 async def webhook(key: str, request: Request, bg: BackgroundTasks):
-    uid = _hook_user(key)
-    cfg = creds.get(uid, "whatsapp")
+    uid = await asyncio.to_thread(_hook_user, key)
+    cfg = await asyncio.to_thread(creds.get, uid, "whatsapp")
     raw = await request.body()
     secret = cfg.get("app_secret", "")
     if secret:
@@ -206,50 +218,64 @@ def simulate(body: SimIn, user: dict = Depends(current_user)):
 
 @router.get("/leads")
 def leads(user: dict = Depends(current_user)):
-    with conn() as c:
-        return [dict(r) for r in c.execute(
-            "SELECT l.*, c.name campaign, c.platform, (SELECT body FROM messages WHERE lead_id=l.id ORDER BY id DESC LIMIT 1) last_message"
-            " FROM leads l LEFT JOIN campaigns c ON c.id=l.campaign_id WHERE l.user_id=?"
-            " ORDER BY COALESCE(l.last_inbound_at,l.created_at) DESC", (user["id"],))]
+    last_message = (select(Message.body).where(Message.lead_id == Lead.id)
+                    .order_by(Message.id.desc()).limit(1).scalar_subquery())
+    statement = (select(*Lead.__table__.columns, Campaign.name.label("campaign"), Campaign.platform,
+                        last_message.label("last_message"))
+                 .outerjoin(Campaign, Campaign.id == Lead.campaign_id)
+                 .where(Lead.user_id == user["id"])
+                 .order_by(func.coalesce(Lead.last_inbound_at, Lead.created_at).desc()))
+    with session_scope() as session:
+        return [dict(r) for r in session.execute(statement).mappings()]
 
 
 @router.get("/leads/{lid}/messages")
 def messages(lid: int, user: dict = Depends(current_user)):
-    with conn() as c:
-        _lead(c, lid, user["id"])
-        return [dict(r) for r in c.execute("SELECT * FROM messages WHERE lead_id=? ORDER BY id", (lid,))]
+    with session_scope() as session:
+        _lead(session, lid, user["id"])
+        return [dict(r) for r in session.execute(select(*Message.__table__.columns)
+                                                 .where(Message.lead_id == lid).order_by(Message.id)).mappings()]
 
 
 @router.post("/leads/{lid}/send")
 def human_send(lid: int, body: SendIn, user: dict = Depends(current_user)):
     """A human replies; this also takes the chat away from the AI."""
-    with conn() as c:
-        lead = _lead(c, lid, user["id"])
-        c.execute("UPDATE leads SET handoff=1 WHERE id=?", (lid,))
+    with session_scope() as session:
+        lead = _lead(session, lid, user["id"])
+        session.execute(update(Lead).where(Lead.id == lid, Lead.user_id == user["id"]).values(handoff=1))
     err = send(lead, body.text, "human", creds.get(user["id"], "whatsapp").get("followup_template") or None)
     return {"ok": not err, "error": err}
 
 
 @router.post("/leads/{lid}/handoff")
 def handoff(lid: int, on: bool, user: dict = Depends(current_user)):
-    with conn() as c:
-        _lead(c, lid, user["id"])
-        c.execute("UPDATE leads SET handoff=? WHERE id=?", (int(on), lid))
+    with session_scope() as session:
+        _lead(session, lid, user["id"])
+        session.execute(update(Lead).where(Lead.id == lid, Lead.user_id == user["id"]).values(handoff=int(on)))
     return {"ok": True}
 
 
 @router.post("/leads/{lid}/won")
 def won(lid: int, body: WonIn, user: dict = Depends(current_user)):
     """Mark a sale and credit it to the originating campaign, so ROAS reflects real WhatsApp revenue."""
-    with conn() as c:
-        lead = _lead(c, lid, user["id"])
+    with session_scope() as session:
+        lead = session.execute(select(*Lead.__table__.columns).where(Lead.id == lid, Lead.user_id == user["id"])
+                               .with_for_update()).mappings().one_or_none()
+        if not lead:
+            raise HTTPException(404, "lead not found")
+        lead = dict(lead)
         if lead["stage"] == "won":
             raise HTTPException(409, "already marked as won")
-        c.execute("UPDATE leads SET stage='won', value=? WHERE id=?", (body.value, lid))
+        session.execute(update(Lead).where(Lead.id == lid, Lead.user_id == user["id"])
+                        .values(stage="won", value=body.value))
         if lead["campaign_id"]:
-            c.execute("INSERT INTO metrics (campaign_id,day,impressions,clicks,spend,conversions,revenue)"
-                      " VALUES (?,date('now'),0,0,0,1,?) ON CONFLICT(campaign_id,day) DO UPDATE SET"
-                      " conversions=conversions+1, revenue=revenue+excluded.revenue", (lead["campaign_id"], body.value))
+            stmt = insert(Metric).values(campaign_id=lead["campaign_id"],
+                                         day=datetime.now(timezone.utc).date().isoformat(),
+                                         impressions=0, clicks=0, spend=0, conversions=1, revenue=body.value)
+            session.execute(stmt.on_conflict_do_update(index_elements=[Metric.campaign_id, Metric.day], set_={
+                "conversions": Metric.__table__.c.conversions + 1,
+                "revenue": Metric.__table__.c.revenue + stmt.excluded.revenue,
+            }))
     return {"ok": True, "attributed": bool(lead["campaign_id"])}
 
 
@@ -257,23 +283,25 @@ def run_followups(user_id: Optional[int] = None) -> int:
     """Nudge quiet leads. Only free-form inside the 24h window; stops after MAX_FOLLOWUPS or any reply."""
     cutoff = (_now() - FOLLOWUP_AFTER).strftime("%Y-%m-%d %H:%M:%S")
     floor = (_now() - WINDOW).strftime("%Y-%m-%d %H:%M:%S")
-    with conn() as c:
-        due = [dict(r) for r in c.execute(
-            "SELECT * FROM leads WHERE handoff=0 AND opted_out=0 AND stage IN ('engaged','qualified')"
-            " AND followups<? AND last_inbound_at<=? AND last_inbound_at>?"
-            + (" AND user_id=?" if user_id else ""), (MAX_FOLLOWUPS, cutoff, floor) + ((user_id,) if user_id else ()))]
+    statement = select(*Lead.__table__.columns).where(
+        Lead.handoff == 0, Lead.opted_out == 0, Lead.stage.in_(("engaged", "qualified")),
+        Lead.followups < MAX_FOLLOWUPS, Lead.last_inbound_at <= cutoff, Lead.last_inbound_at > floor)
+    if user_id:
+        statement = statement.where(Lead.user_id == user_id)
+    with session_scope() as session:
+        due = [dict(r) for r in session.execute(statement).mappings()]
     n = 0
     for lead in due:
-        with conn() as c:
-            last = c.execute("SELECT direction, created_at FROM messages WHERE lead_id=? ORDER BY id DESC LIMIT 1",
-                             (lead["id"],)).fetchone()
+        with session_scope() as session:
+            last = session.execute(select(Message.direction, Message.created_at).where(Message.lead_id == lead["id"])
+                                   .order_by(Message.id.desc()).limit(1)).mappings().one_or_none()
         # skip if we already nudged recently
         if last and last["direction"] == "out" and last["created_at"] > cutoff:
             continue
         msg = "Hi! Just checking in - still interested? Happy to answer any questions."
         if not send(lead, msg, "ai"):
-            with conn() as c:
-                c.execute("UPDATE leads SET followups=followups+1 WHERE id=?", (lead["id"],))
+            with session_scope() as session:
+                session.execute(update(Lead).where(Lead.id == lead["id"]).values(followups=Lead.followups + 1))
             n += 1
     return n
 

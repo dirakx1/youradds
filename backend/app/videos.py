@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import threading
 import uuid
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
@@ -13,12 +14,14 @@ import imageio_ffmpeg
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import delete as sa_delete, select, update
 
 from . import ai, creds, imagegen
 from .auth import current_user
 from .config import CREATIVES_DIR, env
 from .creatives import LANGS, _decode_image
-from .db import conn
+from .db import session_scope
+from .models import Video
 from PIL import Image
 from .render import THEMES, render
 
@@ -31,6 +34,10 @@ VIDEO_FORMATS = {
     "tiktok": {"vertical": (1080, 1920, "9:16")},
     "google": {"youtube_landscape": (1920, 1080, "16:9")},
 }
+
+
+def _video_dict(row):
+    return {column.name: getattr(row, column.name) for column in Video.__table__.columns}
 
 
 class VidIn(BaseModel):
@@ -96,24 +103,29 @@ def generate(body: VidIn, bg: BackgroundTasks, user: dict = Depends(current_user
         product.save(JOBS_DIR / f"{job}.png")
     params = json.dumps({**body.model_dump(exclude={"product_image"}), "prompt": prompt})
     ids = []
-    with conn() as c:
+    with session_scope() as session:
         for p in dict.fromkeys(body.platforms):
             for fmt, (w, h, ratio) in VIDEO_FORMATS[p].items():
                 share = est[ratio] / sum(1 for q in dict.fromkeys(body.platforms)
                                          for v in VIDEO_FORMATS[q].values() if v[2] == ratio)
-                cur = c.execute("INSERT INTO videos (user_id,platform,format,width,height,ratio,duration,cost_usd,job,params,"
-                                "started_at) VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now'))",
-                                (user["id"], p, fmt, w, h, ratio, body.duration, round(share, 4), job, params))
-                ids.append(cur.lastrowid)
+                video = Video(user_id=user["id"], platform=p, format=fmt, width=w, height=h, ratio=ratio,
+                              duration=body.duration, cost_usd=round(share, 4), job=job, params=params,
+                              started_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"))
+                session.add(video)
+                session.flush()
+                ids.append(video.id)
     bg.add_task(run_job, ids)
     return {"videos": ids, "estimated_usd": total}
 
 
 def _set(ids, **kw):
-    cols = ", ".join(f"{k}=?" for k in kw)
-    with conn() as c:
-        for i in ids:
-            c.execute(f"UPDATE videos SET {cols} WHERE id=?", (*kw.values(), i))
+    allowed = set(Video.__table__.columns.keys()) - {"id"}
+    if set(kw) - allowed:
+        raise ValueError("unsupported video update field")
+    if not ids:
+        return
+    with session_scope() as session:
+        session.execute(update(Video).where(Video.id.in_(ids)).values(**kw))
 
 
 def _composite(clip: Path, overlay_png: Path, out: Path, w: int, h: int, dur: int):
@@ -136,8 +148,10 @@ TERMINAL_BAD = ("failed", "nsfw", "canceled")
 def run_job(ids):
     """Generate (or resume waiting for) the clips for these rows, then composite each one. Safe to call again
     for rows whose Higgsfield request is still pending: it re-attaches via the stored status_url."""
-    with conn() as c:
-        rows = [dict(r) for r in c.execute(f"SELECT * FROM videos WHERE id IN ({','.join('?' * len(ids))})", ids)]
+    if not ids:
+        return
+    with session_scope() as session:
+        rows = [_video_dict(r) for r in session.scalars(select(Video).where(Video.id.in_(ids))).all()]
     if not rows:
         return
     VIDEO_DIR.mkdir(parents=True, exist_ok=True)
@@ -203,11 +217,12 @@ def run_job(ids):
 
 def recover():
     """After a restart: re-attach to clips already submitted to Higgsfield; fail rows that never were."""
-    with conn() as c:
-        c.execute("UPDATE videos SET status='failed', error='interrupted by server restart before submission'"
-                  " WHERE status IN ('queued','generating','compositing') AND (status_url IS NULL OR status_url='')")
-        pending = [r["id"] for r in c.execute(
-            "SELECT id FROM videos WHERE status IN ('generating','compositing') AND status_url IS NOT NULL")]
+    with session_scope() as session:
+        session.execute(update(Video).where(Video.status.in_(("queued", "generating", "compositing")),
+                                            (Video.status_url.is_(None)) | (Video.status_url == ""))
+                        .values(status="failed", error="interrupted by server restart before submission"))
+        pending = list(session.scalars(select(Video.id).where(Video.status.in_(("generating", "compositing")),
+                                                              Video.status_url.is_not(None))))
     if pending:
         threading.Thread(target=run_job, args=(pending,), daemon=True).start()
 
@@ -220,14 +235,14 @@ def _resumable(r) -> bool:
 @router.post("/{vid}/resume", status_code=202)
 def resume(vid: int, bg: BackgroundTasks, user: dict = Depends(current_user)):
     """Re-check a request that timed out locally; if Higgsfield finished it, the video gets downloaded and composited."""
-    with conn() as c:
-        r = c.execute("SELECT * FROM videos WHERE id=? AND user_id=?", (vid, user["id"])).fetchone()
+    with session_scope() as session:
+        record = session.scalar(select(Video).where(Video.id == vid, Video.user_id == user["id"]))
+        r = _video_dict(record) if record else None
         if not r or not _resumable(r):
             raise HTTPException(400, "this video cannot be resumed")
-        ids = [x["id"] for x in c.execute("SELECT id FROM videos WHERE job=? AND request_id=? AND status='failed'",
-                                          (r["job"], r["request_id"]))]
-        for i in ids:
-            c.execute("UPDATE videos SET status='generating', error=NULL WHERE id=?", (i,))
+        ids = list(session.scalars(select(Video.id).where(Video.job == r["job"], Video.request_id == r["request_id"],
+                                                          Video.status == "failed")))
+        session.execute(update(Video).where(Video.id.in_(ids)).values(status="generating", error=None))
     bg.add_task(run_job, ids)
     return {"resumed": ids}
 
@@ -235,26 +250,35 @@ def resume(vid: int, bg: BackgroundTasks, user: dict = Depends(current_user)):
 @router.post("/{vid}/cancel")
 def cancel(vid: int, user: dict = Depends(current_user)):
     """Cancel while still queued at Higgsfield (they refund it). Too late once rendering has started."""
-    with conn() as c:
-        r = c.execute("SELECT * FROM videos WHERE id=? AND user_id=?", (vid, user["id"])).fetchone()
+    with session_scope() as session:
+        record = session.scalar(select(Video).where(Video.id == vid, Video.user_id == user["id"]))
+        r = _video_dict(record) if record else None
     if not r or not r["cancel_url"]:
         raise HTTPException(400, "nothing to cancel")
     if not imagegen.cancel(r["cancel_url"], creds.higgsfield_key(user["id"])):
         raise HTTPException(409, "cannot cancel: Higgsfield already started rendering this clip")
-    with conn() as c:
-        c.execute("UPDATE videos SET status='failed', error='canceled (refunded)', provider_status='canceled',"
-                  " cost_usd=0 WHERE job=? AND request_id=?", (r["job"], r["request_id"]))
+    with session_scope() as session:
+        session.execute(update(Video).where(Video.job == r["job"], Video.request_id == r["request_id"])
+                        .values(status="failed", error="canceled (refunded)", provider_status="canceled", cost_usd=0))
     return {"ok": True}
 
 
 @router.get("")
 def list_videos(user: dict = Depends(current_user)):
-    with conn() as c:
-        rows = [dict(r) for r in c.execute(
-            "SELECT id,platform,format,width,height,ratio,duration,status,error,headline,cta,cost_usd,created_at,"
-            "request_id,provider_status,status_url,file,started_at,"
-            "CAST((julianday('now')-julianday(started_at))*86400 AS INTEGER) AS elapsed_s"
-            " FROM videos WHERE user_id=? ORDER BY id DESC LIMIT 100", (user["id"],))]
+    columns = [Video.id, Video.platform, Video.format, Video.width, Video.height, Video.ratio, Video.duration,
+               Video.status, Video.error, Video.headline, Video.cta, Video.cost_usd, Video.created_at,
+               Video.request_id, Video.provider_status, Video.status_url, Video.file, Video.started_at]
+    with session_scope() as session:
+        rows = [dict(r) for r in session.execute(select(*columns).where(Video.user_id == user["id"])
+                                                 .order_by(Video.id.desc()).limit(100)).mappings()]
+    now = datetime.now(timezone.utc)
+    for r in rows:
+        started = r["started_at"]
+        try:
+            parsed = datetime.fromisoformat(started.replace(" ", "T")).replace(tzinfo=timezone.utc) if started else None
+            r["elapsed_s"] = int((now - parsed).total_seconds()) if parsed else None
+        except (ValueError, TypeError):
+            r["elapsed_s"] = None
     for r in rows:
         r["resumable"] = _resumable(r)
         r.pop("status_url"), r.pop("file")
@@ -263,8 +287,9 @@ def list_videos(user: dict = Depends(current_user)):
 
 @router.get("/{vid}/file")
 def video_file(vid: int, download: bool = False, user: dict = Depends(current_user)):
-    with conn() as c:
-        r = c.execute("SELECT file,platform,format FROM videos WHERE id=? AND user_id=? AND status='done'", (vid, user["id"])).fetchone()
+    with session_scope() as session:
+        r = session.execute(select(Video.file, Video.platform, Video.format)
+                            .where(Video.id == vid, Video.user_id == user["id"], Video.status == "done")).mappings().one_or_none()
     if not r or not (VIDEO_DIR / r["file"]).is_file():
         raise HTTPException(404, "video not found")
     return FileResponse(VIDEO_DIR / r["file"], media_type="video/mp4",
@@ -273,8 +298,8 @@ def video_file(vid: int, download: bool = False, user: dict = Depends(current_us
 
 @router.delete("/{vid}", status_code=204)
 def delete(vid: int, user: dict = Depends(current_user)):
-    with conn() as c:
-        r = c.execute("SELECT file FROM videos WHERE id=? AND user_id=?", (vid, user["id"])).fetchone()
-        c.execute("DELETE FROM videos WHERE id=? AND user_id=?", (vid, user["id"]))
-    if r and r["file"]:
-        (VIDEO_DIR / r["file"]).unlink(missing_ok=True)
+    with session_scope() as session:
+        r = session.execute(select(Video.file).where(Video.id == vid, Video.user_id == user["id"])).scalar_one_or_none()
+        session.execute(sa_delete(Video).where(Video.id == vid, Video.user_id == user["id"]))
+    if r:
+        (VIDEO_DIR / r).unlink(missing_ok=True)

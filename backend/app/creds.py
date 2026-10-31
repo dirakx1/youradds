@@ -3,15 +3,19 @@ Secret values are never sent back to the browser - only whether they are set and
 import json
 import os
 import secrets
+from datetime import datetime, timezone
 from functools import lru_cache
 
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy import delete, select
+from sqlalchemy.dialects.postgresql import insert
 
 from .auth import current_user
 from .config import SECRET_KEY_FILE, SHARED_HIGGSFIELD, env
-from .db import conn
+from .db import session_scope
+from .models import Credential
 
 # service -> ordered fields. secret=True values are masked in API responses. required = needed to be "connected".
 SERVICES = {
@@ -62,24 +66,27 @@ def _fernet() -> Fernet:
 
 
 def get(user_id: int, service: str) -> dict:
-    with conn() as c:
-        r = c.execute("SELECT data FROM credentials WHERE user_id=? AND service=?", (user_id, service)).fetchone()
+    with session_scope() as session:
+        r = session.execute(select(Credential.data).where(Credential.user_id == user_id,
+                                                           Credential.service == service)).scalar_one_or_none()
     if not r:
         return {}
     try:
-        return json.loads(_fernet().decrypt(r["data"].encode()))
+        return json.loads(_fernet().decrypt(r.encode()))
     except (InvalidToken, ValueError):
         return {}     # key changed / corrupted: treat as not connected rather than crash
 
 
 def _save(user_id: int, service: str, values: dict):
-    with conn() as c:
+    with session_scope() as session:
         if not values:
-            c.execute("DELETE FROM credentials WHERE user_id=? AND service=?", (user_id, service))
+            session.execute(delete(Credential).where(Credential.user_id == user_id, Credential.service == service))
             return
         enc = _fernet().encrypt(json.dumps(values).encode()).decode()
-        c.execute("INSERT INTO credentials (user_id,service,data) VALUES (?,?,?) ON CONFLICT(user_id,service)"
-                  " DO UPDATE SET data=excluded.data, updated_at=CURRENT_TIMESTAMP", (user_id, service, enc))
+        stmt = insert(Credential).values(user_id=user_id, service=service, data=enc)
+        session.execute(stmt.on_conflict_do_update(index_elements=[Credential.user_id, Credential.service],
+                          set_={"data": stmt.excluded.data,
+                                "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")}))
 
 
 def connected(user_id: int, service: str) -> bool:

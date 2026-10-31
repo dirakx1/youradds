@@ -3,7 +3,7 @@
 Open-source AI ads manager inspired by saleads.ai. Create and manage **Meta**, **TikTok** and **Google** ad
 campaigns, generate ad copy with AI, and get optimization recommendations you can apply in one click.
 
-- **Backend**: Python / FastAPI / SQLite (`backend/`)
+- **Backend**: Python / FastAPI / PostgreSQL hosted by Supabase (`backend/`), using SQLAlchemy 2 and Alembic
 - **Frontend**: dependency-free JS SPA (`frontend/`), served by the backend
 
 ## Run
@@ -11,14 +11,24 @@ campaigns, generate ad copy with AI, and get optimization recommendations you ca
 cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env        # optional
+cp .env.example .env        # set DATABASE_URL and MIGRATION_DATABASE_URL first
+python -m alembic upgrade head
 uvicorn app.main:app --reload
 ```
 Open http://localhost:8000. API docs at `/docs`.
 
+For the configured local development environment, run `./backend/run-local.sh` from the repository root.
+It starts the local PostgreSQL instance if needed, applies migrations, and serves the app at http://localhost:8000.
+Local credentials are in ignored `backend/.env`; database files persist in ignored `backend/data/postgres`.
+
+The backend requires a migrated PostgreSQL database; startup never creates or changes tables. For a Supabase
+project, keep the private `yourads` schema out of the Data API exposed-schema list and use a restricted runtime
+database role. See [the database migration and deployment runbook](backend/docs/database-migration.md).
+
 ## Accounts (multi-user)
 
-- Sign up / log in with email + password (PBKDF2-SHA256, server-side sessions in an HttpOnly cookie, login throttling).
+- Sign up / log in with email + password (Argon2id, server-side sessions in an HttpOnly cookie, login throttling).
+  Existing PBKDF2 password hashes are upgraded automatically after a successful login.
 - Everything is per account: campaigns and metrics, creatives, videos, WhatsApp leads/chats and knowledge base.
   Every API query is filtered by the logged-in user; another user's ids return 404.
 - **Connections page** (per user): Meta (+ Page and Instagram account IDs), TikTok, Google Ads, WhatsApp, Higgsfield.
@@ -65,7 +75,7 @@ opts a customer out permanently.
   them in Meta's WhatsApp config. Add the app secret so webhook signatures are verified.
 
 ## Modes
-- **Demo** (default): no credentials needed. Seeded campaigns with synthetic metrics; everything is stored locally.
+- **Demo** (default): no ad-platform credentials needed. Seeded campaigns with synthetic metrics are stored in PostgreSQL.
 - **Live**: add your platform credentials on the Connections page. Creating/pausing campaigns and budget changes are pushed to
   the platform; use *Connections → Import* to pull existing campaigns. Campaigns created live start **paused**.
 - **AI**: set `ANTHROPIC_API_KEY` for LLM copy and Copilot answers; otherwise templates/rules are used.
@@ -77,6 +87,10 @@ groups and Google ad groups/ads are not yet created), and live metrics are not p
 WhatsApp live mode is untested against a real number; outside the 24h window only the single approved
 the single approved follow-up template can be sent (human replies use it too). Ad-to-lead attribution relies on the
 referral `source_id` matching a campaign's external id, so live Click-to-WhatsApp leads may arrive unattributed.
-Accounts: no email verification or password reset yet, login throttling is per-process, and credentials are pasted
-tokens (no OAuth connect flow or token refresh - Google/TikTok access tokens expire and must be re-pasted). Run behind
+Account authentication is being migrated to Clerk with custom email/password and Google flows; Clerk app setup and live
+acceptance remain pending. Ad-platform credentials are pasted tokens (no OAuth connect flow or token refresh -
+Google/TikTok access tokens expire and must be re-pasted). Run behind
 HTTPS in production. Not yet audited for production use.
+# Authentication implementation status
+
+Clerk-backed custom authentication is being prepared; a dedicated Clerk instance, environment keys and live Google acceptance have not been configured. Do not switch the running local app or production database to Clerk until the implementation verification and account-linking prerequisites in [the Clerk runbook](backend/docs/clerk-auth.md) are complete. Local database migration remains a separate cutover.

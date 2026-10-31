@@ -6,13 +6,15 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import delete as sa_delete, select, update
 from PIL import Image, UnidentifiedImageError
 
 from concurrent.futures import ThreadPoolExecutor
 from . import ai, creds, imagegen
 from .auth import current_user
 from .config import CREATIVES_DIR, env
-from .db import conn
+from .db import session_scope
+from .models import Campaign, Creative
 from .render import FORMATS, THEMES, render
 
 router = APIRouter(prefix="/api/creatives", dependencies=[Depends(current_user)])
@@ -143,13 +145,14 @@ def generate(body: GenIn, user: dict = Depends(current_user)):
                          scene=scenes.get(imagegen.nearest_ratio(*size)))
             fname = f"{uuid.uuid4().hex}.png"
             img.save(CREATIVES_DIR / fname, optimize=True)
-            with conn() as c:
-                cur = c.execute(
-                    "INSERT INTO creatives (user_id,platform,format,width,height,file,headline,subheadline,cta,language)"
-                    " VALUES (?,?,?,?,?,?,?,?,?,?)",
-                    (user["id"], platform, fmt, size[0], size[1], fname, copy["headline"], copy.get("subheadline", ""),
-                     copy.get("cta", ""), body.language))
-            out.append({"id": cur.lastrowid, "platform": platform, "format": fmt, "width": size[0],
+            with session_scope() as session:
+                creative = Creative(user_id=user["id"], platform=platform, format=fmt, width=size[0], height=size[1],
+                                    file=fname, headline=copy["headline"], subheadline=copy.get("subheadline", ""),
+                                    cta=copy.get("cta", ""), language=body.language)
+                session.add(creative)
+                session.flush()
+                creative_id = creative.id
+            out.append({"id": creative_id, "platform": platform, "format": fmt, "width": size[0],
                         "height": size[1], "headline": copy["headline"]})
     return {"creatives": out, "llm": ai.llm_available(), "scene_cost_usd": spent, "warnings": warnings,
             "scene_prompt": sprompt}
@@ -157,16 +160,18 @@ def generate(body: GenIn, user: dict = Depends(current_user)):
 
 @router.get("")
 def list_creatives(user: dict = Depends(current_user)):
-    with conn() as c:
-        return [dict(r) for r in c.execute(
-            "SELECT id,platform,format,width,height,headline,subheadline,cta,language,campaign_id,created_at"
-            " FROM creatives WHERE user_id=? ORDER BY id DESC LIMIT 200", (user["id"],))]
+    columns = [Creative.id, Creative.platform, Creative.format, Creative.width, Creative.height, Creative.headline,
+               Creative.subheadline, Creative.cta, Creative.language, Creative.campaign_id, Creative.created_at]
+    with session_scope() as session:
+        return [dict(r) for r in session.execute(select(*columns).where(Creative.user_id == user["id"])
+                                                 .order_by(Creative.id.desc()).limit(200)).mappings()]
 
 
 @router.get("/{cid}/image")
 def image(cid: int, download: bool = False, user: dict = Depends(current_user)):
-    with conn() as c:
-        r = c.execute("SELECT file,platform,format FROM creatives WHERE id=? AND user_id=?", (cid, user["id"])).fetchone()
+    with session_scope() as session:
+        r = session.execute(select(Creative.file, Creative.platform, Creative.format)
+                            .where(Creative.id == cid, Creative.user_id == user["id"])).mappings().one_or_none()
     if not r or not (CREATIVES_DIR / r["file"]).is_file():
         raise HTTPException(404, "creative not found")
     return FileResponse(CREATIVES_DIR / r["file"], media_type="image/png",
@@ -180,21 +185,24 @@ class AttachIn(BaseModel):
 @router.post("/{cid}/attach")
 def attach(cid: int, body: AttachIn, user: dict = Depends(current_user)):
     """Link the creative to a campaign and copy its text onto the campaign."""
-    with conn() as c:
-        cr = c.execute("SELECT * FROM creatives WHERE id=? AND user_id=?", (cid, user["id"])).fetchone()
-        camp = c.execute("SELECT id FROM campaigns WHERE id=? AND user_id=?", (body.campaign_id, user["id"])).fetchone()
+    with session_scope() as session:
+        cr = session.execute(select(Creative.headline, Creative.subheadline, Creative.cta)
+                             .where(Creative.id == cid, Creative.user_id == user["id"])).mappings().one_or_none()
+        camp = session.scalar(select(Campaign.id).where(Campaign.id == body.campaign_id,
+                                                         Campaign.user_id == user["id"]))
         if not cr or not camp:
             raise HTTPException(404, "creative or campaign not found")
-        c.execute("UPDATE creatives SET campaign_id=? WHERE id=?", (body.campaign_id, cid))
-        c.execute("UPDATE campaigns SET headline=?, body=?, cta=? WHERE id=?",
-                  (cr["headline"], cr["subheadline"], cr["cta"], body.campaign_id))
+        session.execute(update(Creative).where(Creative.id == cid, Creative.user_id == user["id"])
+                        .values(campaign_id=body.campaign_id))
+        session.execute(update(Campaign).where(Campaign.id == body.campaign_id, Campaign.user_id == user["id"])
+                        .values(headline=cr["headline"], body=cr["subheadline"], cta=cr["cta"]))
     return {"ok": True}
 
 
 @router.delete("/{cid}", status_code=204)
 def delete(cid: int, user: dict = Depends(current_user)):
-    with conn() as c:
-        r = c.execute("SELECT file FROM creatives WHERE id=? AND user_id=?", (cid, user["id"])).fetchone()
-        c.execute("DELETE FROM creatives WHERE id=? AND user_id=?", (cid, user["id"]))
+    with session_scope() as session:
+        r = session.execute(select(Creative.file).where(Creative.id == cid, Creative.user_id == user["id"])).scalar_one_or_none()
+        session.execute(sa_delete(Creative).where(Creative.id == cid, Creative.user_id == user["id"]))
     if r:
-        (CREATIVES_DIR / r["file"]).unlink(missing_ok=True)
+        (CREATIVES_DIR / r).unlink(missing_ok=True)

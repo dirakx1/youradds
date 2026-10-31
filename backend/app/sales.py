@@ -2,7 +2,11 @@
 import json
 import re
 from . import ai
-from .db import conn
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
+
+from .db import session_scope
+from .models import Setting
 
 DEFAULT_KNOWLEDGE = ("Business: Demo Store. Product: organic running shoes, $89, free shipping over $50, "
                      "30-day returns. Ship in 2 days. Payment link is sent once the customer confirms the order.")
@@ -16,14 +20,15 @@ handoff=true when the customer asks for a human, is upset, or needs something ou
 
 
 def get_setting(user_id: int, key: str, default: str = "") -> str:
-    with conn() as c:
-        r = c.execute("SELECT value FROM settings WHERE key=?", (f"{user_id}:{key}",)).fetchone()
-    return r["value"] if r else default
+    with session_scope() as session:
+        r = session.execute(select(Setting.value).where(Setting.key == f"{user_id}:{key}")).scalar_one_or_none()
+    return r if r is not None else default
 
 
 def set_setting(user_id: int, key: str, value: str):
-    with conn() as c:
-        c.execute("INSERT INTO settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (f"{user_id}:{key}", value))
+    with session_scope() as session:
+        stmt = insert(Setting).values(key=f"{user_id}:{key}", value=value)
+        session.execute(stmt.on_conflict_do_update(index_elements=[Setting.key], set_={"value": stmt.excluded.value}))
 
 
 def _rules(text: str, knowledge: str) -> dict:

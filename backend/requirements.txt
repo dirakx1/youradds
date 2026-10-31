@@ -2,6 +2,9 @@ fastapi>=0.110
 uvicorn[standard]>=0.29
 httpx>=0.27
 pydantic>=2.6
+SQLAlchemy>=2.0,<2.1
+alembic>=1.13,<2
+psycopg[binary]>=3.2,<4
 python-dotenv>=1.0
 anthropic>=0.40
 pillow>=10.1
@@ -12,3 +15,4 @@ onnxruntime>=1.16
 opencv-python-headless>=4.8
 numpy>=1.24
 cryptography
+clerk-backend-api>=7,<8
