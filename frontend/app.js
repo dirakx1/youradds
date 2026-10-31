@@ -495,7 +495,7 @@ function showAuth() {
     mode = screen;
     const heading = stage === 'verify' ? 'Verify your email' : stage === 'device' ? 'Verify your sign-in' : ({ signin: 'Welcome back', signup: 'Create your account', reset: 'Reset your password', account: 'Your account', callback: 'Finishing sign in', loading: 'Connecting securely' }[screen] || 'Sign in');
     const form = (screen === 'signin' || screen === 'signup') && stage === 'form';
-    el.innerHTML = `<div class="card authbox"><h2>${heading}</h2>${form ? '<p class="muted">Use yourads securely with email or Google.</p>' : ''}
+    el.innerHTML = `<div class="card authbox${screen === 'callback' ? ' callback-card' : ''}"${screen === 'callback' ? ' data-state="loading" aria-busy="true"' : ''}>${screen === 'callback' ? '' : `<h2>${heading}</h2>`}${form ? '<p class="muted">Use yourads securely with email or Google.</p>' : ''}
       ${form ? `<button type="button" id="google" class="google-signin"><img src="https://developers.google.com/static/identity/images/g-logo.png" alt="" width="20" height="20">Continue with Google</button><p class="auth-divider"><span>OR</span></p>` : ''}
       <p class="toast" id="autherr" role="alert" aria-live="polite"></p>
       ${screen === 'signin' ? `<form id="authf" class="stack"><label>Email<input name="email" type="email" required autocomplete="email"></label><label>Password<input name="password" type="password" required autocomplete="current-password"></label><button class="pri">Sign in</button><a class="forgot-password" href="/forgot-password">Forgot password?</a></form><p class="muted">New here? <a href="/sign-up">Create an account</a></p>` : ''}
@@ -504,7 +504,7 @@ function showAuth() {
       ${screen === 'signin' && stage === 'device' ? `<form id="devicef" class="stack"><p>Enter the verification code sent to your email.</p><label>Email verification code<input name="code" inputmode="numeric" autocomplete="one-time-code" required></label><button class="pri">Verify device</button><button type="button" id="resend">Send a new code</button></form>` : ''}
       ${screen === 'reset' ? `<form id="resetf" class="stack"><label>Email<input name="email" type="email" required autocomplete="email" value="${esc(email)}"></label>${stage !== 'form' ? `<label>Verification code<input name="code" inputmode="numeric" autocomplete="one-time-code" required></label><label>New password<input name="password" type="password" minlength="8" autocomplete="new-password" required></label><label>Confirm new password<input name="confirmPassword" type="password" minlength="8" autocomplete="new-password" required></label>` : ''}<button class="pri">${stage === 'form' ? 'Send reset code' : 'Reset password'}</button></form><a href="/sign-in">Back to sign in</a>` : ''}
       ${screen === 'account' ? `<p>${esc(window.__youradsMe?.email || '')}</p><form id="passwordf" class="stack"><label>Current password<input name="current" type="password" autocomplete="current-password" required></label><label>New password<input name="next" type="password" minlength="8" autocomplete="new-password" required></label><button class="pri">Update password</button></form><button id="signout">Sign out</button>` : ''}
-      ${screen === 'callback' ? '<p class="muted">Please wait while your secure session is confirmed.</p><button type="button" id="retry">Try Google sign-in again</button><a href="/sign-in">Back to sign in</a>' : ''}
+      ${screen === 'callback' ? '<div class="callback-brand" aria-label="yourads">your<span>ads</span></div><div class="callback-icon" aria-hidden="true"><span class="callback-spinner"></span><svg class="callback-check" viewBox="0 0 24 24" fill="none"><path d="m5 12.5 4.5 4L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div><p class="callback-eyebrow">SECURE SIGN-IN</p><h2 id="callback-title">Taking you back to yourads</h2><p class="callback-message" id="callback-message" aria-live="polite">Confirming your Google account and setting up your session.</p><p class="callback-detail">This usually takes just a moment. You can keep this page open.</p><div class="callback-error" id="callback-error" role="alert" aria-live="assertive"></div><div class="callback-actions" id="callback-actions" hidden><button type="button" id="retry" class="pri">Try Google sign-in again</button><a href="/sign-in">Return to sign in</a></div>' : ''}
       </div>`;
     if (screen === 'loading') return;
     const google = $('#google', el); if (google) google.onclick = async () => { if (busy) return; if (mode === 'signup' && !$('#authf [name="terms"]', el)?.checked) { error('Please accept the Terms of Service and Privacy Policy to create an account.'); $('#authf [name="terms"]', el)?.focus(); return; } busy = true; authButton(google, true); try { await auth.google({ continueSignUp: mode === 'signup' }); } catch (x) { busy = false; authButton(google, false); error(x.message); } };
@@ -536,15 +536,24 @@ function showAuth() {
     };
     const password = $('#passwordf', el); if (password) password.onsubmit = async e => { e.preventDefault(); if (busy) return; busy = true; const b = $('button', password); authButton(b, true); try { await auth.updatePassword(new FormData(password).get('current'), new FormData(password).get('next')); password.reset(); error('Password updated.'); } catch (x) { error(x.message); } finally { busy = false; authButton(b, false); } };
     const signout = $('#signout', el); if (signout) signout.onclick = async () => { authButton(signout, true); try { await auth.signOut(); location.replace('/sign-in'); } catch (x) { authButton(signout, false); error(x.message); } };
-  const retry = $('#retry', el); if (retry) retry.onclick = async () => { authButton(retry, true); try { await auth.google(); } catch (x) { authButton(retry, false); error(x.message); } };
+  const retry = $('#retry', el); if (retry) retry.onclick = async () => { const card = $('.callback-card', el); card.dataset.state = 'loading'; card.setAttribute('aria-busy', 'true'); $('#callback-title', el).textContent = 'Taking you back to yourads'; $('#callback-message', el).textContent = 'Confirming your Google account and setting up your session.'; $('#callback-error', el).textContent = ''; $('#callback-actions', el).hidden = true; authButton(retry, true); try { await auth.google(); } catch (x) { card.dataset.state = 'error'; card.setAttribute('aria-busy', 'false'); $('#callback-title', el).textContent = 'We couldn’t finish sign-in'; $('#callback-message', el).textContent = 'Your Google account wasn’t connected to yourads.'; $('#callback-error', el).textContent = x.message || 'Please try again.'; $('#callback-actions', el).hidden = false; authButton(retry, false); } };
   };
   async function callback() {
     render('callback');
+    const card = $('.callback-card', el);
+    const showFailure = message => {
+      card.dataset.state = 'error';
+      card.setAttribute('aria-busy', 'false');
+      $('#callback-title', el).textContent = 'We couldn’t finish sign-in';
+      $('#callback-message', el).textContent = 'Your Google account wasn’t connected to yourads.';
+      $('#callback-error', el).textContent = message;
+      $('#callback-actions', el).hidden = false;
+    };
     try {
       await auth.completeGoogle();
       if (await auth.token()) { location.replace('/'); return; }
-      error('Clerk returned without an active session. Retry Google sign-in or return to the sign-in page.');
-    } catch (x) { error(x.message || 'Google sign-in could not be completed. Retry or return to sign in.'); }
+      showFailure('Clerk returned without an active session. Please try again.');
+    } catch (x) { showFailure(x.message || 'Google sign-in could not be completed. Please try again.'); }
   }
   if (mode === 'callback' || path === '/sso-callback') { mode = 'callback'; callback(); return; }
   if (mode === 'account') {
