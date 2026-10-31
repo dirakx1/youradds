@@ -1,4 +1,4 @@
-import { auth } from './auth.js?v=sidebar-profile-1';
+import { auth } from './auth.js?v=profile-settings-1';
 
 const authPollers = new Set();
 
@@ -365,6 +365,91 @@ const views = {
       if (clr) clr.onclick = async () => { if (confirm('Remove the saved ' + svc + ' credentials?')) { await api('/connections/' + svc, { method: 'DELETE' }); views.connections(el); } };
     });
   },
+
+  async profile(el) {
+    const user = (await auth.init()).user;
+    if (!user) throw new Error('Your session ended. Please sign in again.');
+    const email = user.primaryEmailAddress?.emailAddress || window.__youradsMe?.email || '';
+    const fullName = user.fullName || [user.firstName, user.lastName].filter(Boolean).join(' ');
+    const initials = (fullName || email || '?').trim().split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase();
+    const imageUrl = user.imageUrl && new URL(user.imageUrl).protocol === 'https:' ? user.imageUrl : '';
+    el.innerHTML = `<h2>Profile</h2><p class="muted profile-intro">Manage the details associated with your account.</p>
+      <div class="profile-settings-grid">
+        <section class="card profile-settings-card"><h3>Personal information</h3><p class="muted">Your name is visible across yourads. Your email is managed by Clerk.</p>
+          <form id="profile-name-form" class="stack"><label for="profile-name">Name<input id="profile-name" name="name" value="${esc(fullName)}" maxlength="80" autocomplete="name" required></label>
+            <div class="profile-email"><span class="muted">Email address</span><strong>${esc(email || 'No primary email')}</strong></div>
+            <p class="profile-status" id="profile-name-status" role="status" aria-live="polite"></p><button class="pri">Save changes</button></form>
+        </section>
+        <section class="card profile-settings-card"><h3>Profile picture</h3><p class="muted">Use a square image for the best fit.</p>
+          <div class="profile-picture-row"><div class="profile-avatar-large" id="profile-avatar-preview">${imageUrl ? `<img src="${esc(imageUrl)}" alt="Profile picture">` : esc(initials)}</div>
+            <div class="profile-picture-controls"><label class="profile-file-button" for="profile-photo-input">Choose image</label><input class="profile-file-input" id="profile-photo-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp" aria-label="Choose profile picture">
+              <small class="muted">PNG, JPG, GIF, or WebP</small><button id="save-profile-photo" type="button" class="pri" disabled>Save picture</button>
+              <button id="remove-profile-photo" type="button" ${user.hasImage ? '' : 'hidden'}>Remove picture</button></div></div>
+          <p class="profile-status" id="profile-photo-status" role="status" aria-live="polite"></p>
+        </section>
+      </div>`;
+
+    const nameForm = $('#profile-name-form', el), nameStatus = $('#profile-name-status', el);
+    nameForm.onsubmit = async e => {
+      e.preventDefault();
+      const button = nameForm.querySelector('button');
+      authButton(button, true);
+      nameStatus.textContent = '';
+      nameStatus.classList.remove('toast');
+      try {
+        const updated = await auth.updateProfile(new FormData(nameForm).get('name'));
+        syncProfileIdentity(updated);
+        nameForm.elements.name.value = updated.fullName || [updated.firstName, updated.lastName].filter(Boolean).join(' ');
+        nameStatus.textContent = 'Name updated.';
+      } catch (x) { nameStatus.textContent = clerkError(x); nameStatus.classList.add('toast'); }
+      finally { authButton(button, false); }
+    };
+
+    const photoInput = $('#profile-photo-input', el), savePhoto = $('#save-profile-photo', el);
+    const photoStatus = $('#profile-photo-status', el), preview = $('#profile-avatar-preview', el);
+    let previewUrl = '';
+    photoInput.onchange = () => {
+      const file = photoInput.files?.[0];
+      photoStatus.textContent = '';
+      photoStatus.classList.remove('toast');
+      if (!file) { savePhoto.disabled = true; return; }
+      if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.type)) { photoStatus.textContent = 'Choose a PNG, JPG, GIF, or WebP image.'; photoStatus.classList.add('toast'); photoInput.value = ''; savePhoto.disabled = true; return; }
+      if (file.size > 10 * 1024 * 1024) { photoStatus.textContent = 'Choose an image smaller than 10 MB.'; photoStatus.classList.add('toast'); photoInput.value = ''; savePhoto.disabled = true; return; }
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      previewUrl = URL.createObjectURL(file);
+      preview.replaceChildren();
+      const image = document.createElement('img'); image.src = previewUrl; image.alt = 'Selected profile picture'; preview.append(image);
+      savePhoto.disabled = false;
+    };
+    savePhoto.onclick = async () => {
+      const file = photoInput.files?.[0]; if (!file) return;
+      let saved = false;
+      authButton(savePhoto, true); photoStatus.textContent = ''; photoStatus.classList.remove('toast');
+      try {
+        await auth.setProfileImage(file);
+        await user.reload();
+        syncProfileIdentity(user);
+        preview.replaceChildren();
+        if (user.imageUrl) { const image = document.createElement('img'); image.src = user.imageUrl; image.alt = 'Profile picture'; preview.append(image); }
+        $('#remove-profile-photo', el).hidden = !user.hasImage;
+        photoInput.value = ''; photoStatus.textContent = 'Profile picture updated.';
+        saved = true;
+      } catch (x) { photoStatus.textContent = clerkError(x); photoStatus.classList.add('toast'); }
+      finally { authButton(savePhoto, false); savePhoto.disabled = saved || !photoInput.files?.[0]; }
+    };
+    $('#remove-profile-photo', el).onclick = async e => {
+      authButton(e.currentTarget, true); photoStatus.textContent = ''; photoStatus.classList.remove('toast');
+      try {
+        await auth.setProfileImage(null);
+        await user.reload();
+        syncProfileIdentity(user);
+        preview.textContent = initials;
+        e.currentTarget.hidden = true;
+        photoStatus.textContent = 'Profile picture removed.';
+      } catch (x) { photoStatus.textContent = clerkError(x); photoStatus.classList.add('toast'); }
+      finally { authButton(e.currentTarget, false); }
+    };
+  },
 };
 
 // ---- accounts ----
@@ -373,6 +458,30 @@ function authButton(button, loading) {
   button.classList.toggle('is-loading', loading);
   button.disabled = loading;
   button.setAttribute('aria-busy', String(loading));
+}
+
+function clerkError(error) {
+  return error?.errors?.map(item => item.longMessage || item.message).filter(Boolean).join(' ') || error?.message || 'Could not update your profile. Please try again.';
+}
+
+function syncProfileIdentity(user, fallback = window.__youradsMe || {}) {
+  const email = user?.primaryEmailAddress?.emailAddress || fallback.email || '';
+  const displayName = user?.fullName || [user?.firstName, user?.lastName].filter(Boolean).join(' ') || fallback.name || email;
+  window.__youradsMe = { ...fallback, name: displayName, email };
+  $('#who-name').textContent = displayName;
+  $('#who-email').textContent = email;
+  $('#menu-name').textContent = displayName;
+  $('#menu-email').textContent = email;
+  const avatar = $('#avatar');
+  if (avatar) {
+    avatar.textContent = displayName.trim().split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase() || '?';
+    const imageUrl = user?.imageUrl;
+    if (imageUrl && new URL(imageUrl).protocol === 'https:') {
+      const image = document.createElement('img'); image.className = 'avatar-image'; image.alt = ''; image.src = imageUrl;
+      image.onerror = () => image.remove(); avatar.append(image);
+    }
+  }
+  return { displayName, email };
 }
 
 function showAuth() {
@@ -384,13 +493,13 @@ function showAuth() {
   const error = (message) => { const node = $('#autherr', el); if (node) node.textContent = message; };
   const render = (screen = mode, stage = 'form') => {
     mode = screen;
-    const heading = { signin: 'Welcome back', signup: 'Create your account', reset: 'Reset your password', account: 'Your account', callback: 'Finishing sign in', loading: 'Connecting securely' }[screen] || 'Sign in';
-    const form = screen === 'signin' || screen === 'signup';
-    el.innerHTML = `<div class="card authbox"><h2>${heading}</h2><p class="muted">Use yourads securely with email or Google.</p>
+    const heading = stage === 'verify' ? 'Verify your email' : stage === 'device' ? 'Verify your sign-in' : ({ signin: 'Welcome back', signup: 'Create your account', reset: 'Reset your password', account: 'Your account', callback: 'Finishing sign in', loading: 'Connecting securely' }[screen] || 'Sign in');
+    const form = (screen === 'signin' || screen === 'signup') && stage === 'form';
+    el.innerHTML = `<div class="card authbox"><h2>${heading}</h2>${form ? '<p class="muted">Use yourads securely with email or Google.</p>' : ''}
       ${form ? `<button type="button" id="google" class="google-signin"><img src="https://developers.google.com/static/identity/images/g-logo.png" alt="" width="20" height="20">Continue with Google</button><p class="auth-divider"><span>OR</span></p>` : ''}
       <p class="toast" id="autherr" role="alert" aria-live="polite"></p>
       ${screen === 'signin' ? `<form id="authf" class="stack"><label>Email<input name="email" type="email" required autocomplete="email"></label><label>Password<input name="password" type="password" required autocomplete="current-password"></label><button class="pri">Sign in</button><a class="forgot-password" href="/forgot-password">Forgot password?</a></form><p class="muted">New here? <a href="/sign-up">Create an account</a></p>` : ''}
-      ${screen === 'signup' && stage === 'form' ? `<form id="authf" class="stack"><div id="clerk-captcha"></div><label>Name (optional)<input name="name" autocomplete="name" maxlength="80"></label><label>Email<input name="email" type="email" required autocomplete="email"></label><label>Password<input name="password" type="password" required minlength="8" autocomplete="new-password"></label><button class="pri">Create account</button></form><p class="muted">Already registered? <a href="/sign-in">Sign in</a></p>` : ''}
+      ${screen === 'signup' && stage === 'form' ? `<form id="authf" class="stack"><div id="clerk-captcha"></div><label>Name (optional)<input name="name" autocomplete="name" maxlength="80"></label><label>Email<input name="email" type="email" required autocomplete="email"></label><label>Password<input name="password" type="password" required minlength="8" autocomplete="new-password"></label><label class="terms-consent"><input name="terms" type="checkbox" required><span>I agree to the <a href="/terms/" target="_blank" rel="noopener">Terms of Service</a> and acknowledge the <a href="/privacy/" target="_blank" rel="noopener">Privacy Policy</a>.</span></label><button class="pri">Create account</button></form><p class="muted">Already registered? <a href="/sign-in">Sign in</a></p>` : ''}
       ${screen === 'signup' && stage === 'verify' ? `<form id="verifyf" class="stack"><p>Enter the code sent to <b>${esc(email)}</b>.</p><label>Email verification code<input name="code" inputmode="numeric" autocomplete="one-time-code" required></label><button class="pri">Verify email</button><button type="button" id="resend">Send a new code</button></form>` : ''}
       ${screen === 'signin' && stage === 'device' ? `<form id="devicef" class="stack"><p>Enter the verification code sent to your email.</p><label>Email verification code<input name="code" inputmode="numeric" autocomplete="one-time-code" required></label><button class="pri">Verify device</button><button type="button" id="resend">Send a new code</button></form>` : ''}
       ${screen === 'reset' ? `<form id="resetf" class="stack"><label>Email<input name="email" type="email" required autocomplete="email" value="${esc(email)}"></label>${stage !== 'form' ? `<label>Verification code<input name="code" inputmode="numeric" autocomplete="one-time-code" required></label><label>New password<input name="password" type="password" minlength="8" autocomplete="new-password" required></label>` : ''}<button class="pri">${stage === 'form' ? 'Send reset code' : 'Reset password'}</button></form><a href="/sign-in">Back to sign in</a>` : ''}
@@ -398,7 +507,7 @@ function showAuth() {
       ${screen === 'callback' ? '<p class="muted">Please wait while your secure session is confirmed.</p><button type="button" id="retry">Try Google sign-in again</button><a href="/sign-in">Back to sign in</a>' : ''}
       </div>`;
     if (screen === 'loading') return;
-    const google = $('#google', el); if (google) google.onclick = async () => { if (busy) return; busy = true; authButton(google, true); try { await auth.google(); } catch (x) { busy = false; authButton(google, false); error(x.message); } };
+    const google = $('#google', el); if (google) google.onclick = async () => { if (busy) return; if (mode === 'signup' && !$('#authf [name="terms"]', el)?.checked) { error('Please accept the Terms of Service and Privacy Policy to create an account.'); $('#authf [name="terms"]', el)?.focus(); return; } busy = true; authButton(google, true); try { await auth.google({ continueSignUp: mode === 'signup' }); } catch (x) { busy = false; authButton(google, false); error(x.message); } };
     const formEl = $('#authf', el); if (formEl) formEl.onsubmit = async e => {
       e.preventDefault(); if (busy) return; busy = true;
       const submit = formEl.querySelector('[type="submit"],button:not([type])'); authButton(submit, true);
@@ -442,22 +551,7 @@ async function boot() {
   window.__youradsMe = me;
   if (location.pathname.startsWith('/sign-') || location.pathname === '/forgot-password') location.replace('/');
   document.body.classList.remove('anon');
-  const displayName = me.name || me.email;
-  $('#who-name').textContent = displayName;
-  $('#who-email').textContent = me.email;
-  $('#menu-name').textContent = displayName;
-  $('#menu-email').textContent = me.email;
-  const avatar = $('#avatar');
-  avatar.textContent = displayName.trim().split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase();
-  const imageUrl = auth.clerk?.user?.imageUrl;
-  if (imageUrl && new URL(imageUrl).protocol === 'https:') {
-    const image = document.createElement('img');
-    image.className = 'avatar-image';
-    image.alt = '';
-    image.src = imageUrl;
-    image.onerror = () => image.remove();
-    avatar.append(image);
-  }
+  syncProfileIdentity(auth.clerk?.user, me);
   route();
   return me;
 }
@@ -479,8 +573,10 @@ addEventListener('yourads:signed-out', () => {
   document.body.classList.add('anon');
 });
 const profileButton = $('#profile-button'), profileMenu = $('#profile-menu');
+$('#profile-settings').onclick = () => { profileButton.setAttribute('aria-expanded', 'false'); profileMenu.hidden = true; };
 const navToggle = $('#nav-toggle'), primaryNav = $('#primary-nav'), navBackdrop = $('#nav-backdrop');
-function closeNav() { navToggle.setAttribute('aria-expanded', 'false'); navToggle.setAttribute('aria-label', 'Open navigation'); primaryNav.classList.remove('open'); primaryNav.inert = true; navBackdrop.hidden = true; }
+const mobileNav = matchMedia('(max-width:700px)');
+function closeNav() { navToggle.setAttribute('aria-expanded', 'false'); navToggle.setAttribute('aria-label', 'Open navigation'); primaryNav.classList.remove('open'); primaryNav.inert = mobileNav.matches; navBackdrop.hidden = true; }
 navToggle.onclick = () => {
   const open = navToggle.getAttribute('aria-expanded') !== 'true';
   navToggle.setAttribute('aria-expanded', String(open));
@@ -489,8 +585,13 @@ navToggle.onclick = () => {
   primaryNav.inert = !open;
   navBackdrop.hidden = !open;
 };
+primaryNav.inert = mobileNav.matches;
+mobileNav.addEventListener('change', e => {
+  if (e.matches) primaryNav.inert = navToggle.getAttribute('aria-expanded') !== 'true';
+  else closeNav();
+});
 navBackdrop.onclick = closeNav;
-primaryNav.addEventListener('click', e => { if (e.target.closest('a')) closeNav(); });
+primaryNav.addEventListener('click', e => { if (e.target.closest('a') && mobileNav.matches) closeNav(); });
 profileButton.onclick = () => {
   const open = profileButton.getAttribute('aria-expanded') !== 'true';
   profileButton.setAttribute('aria-expanded', String(open));

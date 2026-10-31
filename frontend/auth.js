@@ -135,11 +135,11 @@ async function resetPassword(email, code, password) {
   return { complete: true };
 }
 
-async function google() {
+async function google({ continueSignUp = true } = {}) {
   const c = await init();
   await c.client.signIn.authenticateWithRedirect({
     strategy: 'oauth_google', redirectUrl: '/sso-callback', redirectUrlComplete: '/',
-    continueSignUp: true,
+    continueSignUp,
   });
 }
 
@@ -159,6 +159,17 @@ async function updatePassword(currentPassword, newPassword) {
   return attempt;
 }
 
+async function updateProfile(name) {
+  const c = await init();
+  const [firstName, ...last] = name.trim().split(/\s+/);
+  return c.user.update({ firstName: firstName || '', lastName: last.join(' ') });
+}
+
+async function setProfileImage(file) {
+  const c = await init();
+  return c.user.setProfileImage({ file });
+}
+
 async function signOut() {
   const c = await init();
   signingOut = true;
@@ -166,5 +177,5 @@ async function signOut() {
 }
 
 export const auth = { init, token, signIn, signUp, verifySignup, resendSignupCode, resetPassword,
-  google, completeGoogle, updatePassword, signOut, verifyDeviceTrust, resendDeviceTrustCode, get clerk() { return clerk; } };
+  google, completeGoogle, updatePassword, updateProfile, setProfileImage, signOut, verifyDeviceTrust, resendDeviceTrustCode, get clerk() { return clerk; } };
 export { publicClient };

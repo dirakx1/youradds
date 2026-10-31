@@ -4,13 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>yourads – AI Ads Manager</title>
-<link rel="stylesheet" href="/styles.css?v=mobile-sheet-2">
+<link rel="stylesheet" href="/styles.css?v=footer-anon-spacing-1">
 </head>
 <body>
 <aside>
   <div class="mobile-header"><h1>your<span>ads</span></h1><button id="nav-toggle" class="nav-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="primary-nav"><span></span><span></span><span></span></button></div>
   <button id="nav-backdrop" class="nav-backdrop" type="button" aria-label="Close navigation" hidden></button>
   <nav id="primary-nav">
+    <a class="sheet-brand" href="/">your<span>ads</span></a>
     <a href="#dashboard">Dashboard</a>
     <a href="#campaigns">Campaigns</a>
     <a href="#studio">AI Studio</a>
@@ -27,10 +28,13 @@
       <span class="profile-copy"><strong id="who-name"></strong><small id="who-email"></small></span>
       <span class="profile-chevron" aria-hidden="true"></span>
     </button>
-    <div id="profile-menu" class="profile-menu" hidden><div class="profile-details"><strong id="menu-name"></strong><small id="menu-email"></small></div><button id="logout" type="button">Log out</button></div>
+    <div id="profile-menu" class="profile-menu" hidden><div class="profile-details"><strong id="menu-name"></strong><small id="menu-email"></small></div><a href="#profile" id="profile-settings">Profile settings</a><button id="logout" type="button">Log out</button></div>
   </div>
 </aside>
-<main id="view"></main>
-<script type="module" src="/app.js?v=mobile-sheet-2"></script>
+<main>
+  <div id="view"></div>
+</main>
+<footer class="site-footer"><span>© 2026 yourads</span><nav aria-label="Legal"><a href="/terms/">Terms</a><a href="/privacy/">Privacy</a></nav></footer>
+<script type="module" src="/app.js?v=profile-settings-2"></script>
 </body>
 </html>
