@@ -579,6 +579,16 @@ async function boot() {
   return me;
 }
 
+async function enterAuthPage() {
+  document.body.classList.add('anon');
+  $('#view').innerHTML = '<div class="card authbox auth-route-checking" role="status" aria-live="polite" aria-busy="true"><span class="callback-spinner" aria-hidden="true"></span><h2>Checking your session</h2><p class="muted">Connecting securely…</p></div>';
+  try {
+    await auth.init();
+    if (auth.clerk?.session) { location.replace('/'); return; }
+  } catch { /* Keep the auth form available if Clerk cannot initialize. */ }
+  showAuth();
+}
+
 async function route() {
   const name = (location.hash.slice(1) || 'dashboard');
   document.querySelectorAll('nav a').forEach(a => a.classList.toggle('on', a.hash === '#' + name));
@@ -627,5 +637,6 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') { profileButton.setAttribute('aria-expanded', 'false'); profileMenu.hidden = true; closeNav(); profileButton.focus(); }
 });
 $('#logout').onclick = async e => { authButton(e.currentTarget, true); try { await auth.signOut(); location.replace('/sign-in'); } catch (x) { authButton(e.currentTarget, false); alert(x.message || 'Could not sign out. Please try again.'); } };
-if (location.pathname !== '/') showAuth();
+if (['/sign-in', '/sign-up', '/forgot-password'].includes(location.pathname)) enterAuthPage();
+else if (location.pathname !== '/') showAuth();
 else boot().catch(showAuth);
