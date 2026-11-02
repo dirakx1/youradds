@@ -1,0 +1,35 @@
+[Unit]
+Description=yourads FastAPI application
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=yourads
+Group=yourads
+WorkingDirectory=/opt/yourads/backend
+Environment=YOURADS_SECRET_KEY_FILE=/var/lib/yourads/.secret_key
+Environment=YOURADS_CREATIVES=/var/lib/yourads/creatives
+Environment=HOME=/var/lib/yourads
+StateDirectory=yourads
+StateDirectoryMode=0750
+UMask=0077
+
+ExecStart=/opt/yourads/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+
+[Install]
+WantedBy=multi-user.target

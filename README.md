@@ -23,12 +23,14 @@ Local credentials are in ignored `backend/.env`; database files persist in ignor
 
 The backend requires a migrated PostgreSQL database; startup never creates or changes tables. For a Supabase
 project, keep the private `yourads` schema out of the Data API exposed-schema list and use a restricted runtime
-database role. See [the database migration and deployment runbook](backend/docs/database-migration.md).
+database role. See [the database migration runbook](backend/docs/database-migration.md) and the
+[EC2 + Nginx deployment guide](backend/docs/ec2-nginx-deployment.md).
 
 ## Accounts (multi-user)
 
-- Sign up / log in with email + password (Argon2id, server-side sessions in an HttpOnly cookie, login throttling).
-  Existing PBKDF2 password hashes are upgraded automatically after a successful login.
+- Sign up / log in with email + password or Google through Clerk. The backend verifies Clerk session tokens.
+  Existing local passwords and sessions are not migrated into Clerk; users must be linked explicitly as described in
+  the [Clerk runbook](backend/docs/clerk-auth.md).
 - Everything is per account: campaigns and metrics, creatives, videos, WhatsApp leads/chats and knowledge base.
   Every API query is filtered by the logged-in user; another user's ids return 404.
 - **Connections page** (per user): Meta (+ Page and Instagram account IDs), TikTok, Google Ads, WhatsApp, Higgsfield.
@@ -87,10 +89,12 @@ groups and Google ad groups/ads are not yet created), and live metrics are not p
 WhatsApp live mode is untested against a real number; outside the 24h window only the single approved
 the single approved follow-up template can be sent (human replies use it too). Ad-to-lead attribution relies on the
 referral `source_id` matching a campaign's external id, so live Click-to-WhatsApp leads may arrive unattributed.
-Account authentication is being migrated to Clerk with custom email/password and Google flows; Clerk app setup and live
-acceptance remain pending. Ad-platform credentials are pasted tokens (no OAuth connect flow or token refresh -
+Clerk-backed custom email/password and Google flows are implemented. Production Clerk configuration and live Google
+acceptance must be completed before launch. Ad-platform credentials are pasted tokens (no OAuth connect flow or token refresh -
 Google/TikTok access tokens expire and must be re-pasted). Run behind
 HTTPS in production. Not yet audited for production use.
-# Authentication implementation status
+# Production launch status
 
-Clerk-backed custom authentication is being prepared; a dedicated Clerk instance, environment keys and live Google acceptance have not been configured. Do not switch the running local app or production database to Clerk until the implementation verification and account-linking prerequisites in [the Clerk runbook](backend/docs/clerk-auth.md) are complete. Local database migration remains a separate cutover.
+The authentication implementation is Clerk-backed. Configure a dedicated production Clerk instance, verify Google
+OAuth in a normal browser, and complete account linking before switching existing users. See the
+[Clerk runbook](backend/docs/clerk-auth.md) and [EC2 deployment guide](backend/docs/ec2-nginx-deployment.md).
