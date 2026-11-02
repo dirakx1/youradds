@@ -4,6 +4,8 @@ This is a single-instance deployment starting point for an Ubuntu LTS EC2 host. 
 managed Postgres service; do not install or expose Postgres on the web instance. Nginx terminates HTTPS and proxies to
 one Uvicorn process bound to `127.0.0.1:8000`. The frontend is served by FastAPI.
 
+For the current live host state and operational notes, see the [EC2 server operations record](ec2-server-operations.md).
+
 ```text
 Browser ── HTTPS ──> Nginx :443 ── HTTP loopback ──> Uvicorn :8000 ── TLS ──> managed PostgreSQL
                                   EC2 EBS: /var/lib/yourads
@@ -172,12 +174,105 @@ Verify Certbot renewal is enabled for the chosen installation method. After HTTP
 Google callback, email verification and reset, sign-out, profile updates, image upload, creative generation, downloads,
 WhatsApp callbacks, and a backup restore in a non-production instance before opening public access.
 
-## Release and operations
+## Update and redeploy the app
 
-For each reviewed release, install dependencies and run the Alembic migration as a separate deployment step, then
-restart `yourads`. Keep one worker. Back up Postgres and the persistent state directory together; record the exact
-release, Python and dependency versions, Clerk instance, and secret-key backup location. Watch systemd logs, Nginx
-access/error logs, disk, memory, Postgres connections, and external AI/provider spend.
+This single-instance workflow has a short interruption while files are synced and the service restarts. Deploy a
+committed release from the development machine. The EC2 app directory is an installed copy, not a Git checkout.
+Build an archive from the commit you intend to deploy; `git archive` includes tracked files only, so local `.env`,
+database files, virtual environments, plans, and the ignored SSH key are not sent. Check that no secret was committed
+before archiving; `.gitignore` cannot remove a secret already tracked in Git:
+
+```sh
+git archive --format=tar.gz --output=/tmp/yourads-release.tar.gz HEAD
+scp -i /path/to/youradds.pem /tmp/yourads-release.tar.gz ubuntu@<EC2_HOST>:/tmp/yourads-release.tar.gz
+```
+
+Replace `/path/to/youradds.pem` and `<EC2_HOST>` with your private SSH key path and the current EC2 hostname or
+address from your private deployment inventory. On EC2, extract the archive, snapshot the current code and dependency
+versions, then stop the service:
+
+```sh
+sudo mkdir -p /tmp/yourads-release
+sudo tar -xzf /tmp/yourads-release.tar.gz -C /tmp/yourads-release
+
+backup_id=$(date -u +%Y%m%dT%H%M%SZ)
+sudo install -d -o root -g yourads -m 0750 "/opt/yourads/releases/$backup_id/backend" \
+  "/opt/yourads/releases/$backup_id/frontend"
+sudo rsync -a --delete --chown=root:yourads \
+  --exclude='/.env*' --exclude='/.venv/' --exclude='/data/' --exclude='/__pycache__/' \
+  /opt/yourads/backend/ "/opt/yourads/releases/$backup_id/backend/"
+sudo rsync -a --delete --chown=root:yourads \
+  /opt/yourads/frontend/ "/opt/yourads/releases/$backup_id/frontend/"
+sudo /opt/yourads/backend/.venv/bin/python -m pip freeze \
+  | sudo tee "/opt/yourads/releases/$backup_id/requirements.lock" >/dev/null
+sudo systemctl stop yourads
+```
+
+Sync the release into the installed paths. These exclusions preserve the server's runtime environment, virtualenv,
+local data, and environment-file backups:
+
+```sh
+sudo rsync -a --delete --chown=root:yourads \
+  --exclude='/.env*' --exclude='/.venv/' --exclude='/data/' --exclude='/__pycache__/' \
+  /tmp/yourads-release/backend/ /opt/yourads/backend/
+sudo rsync -a --delete --chown=root:yourads \
+  /tmp/yourads-release/frontend/ /opt/yourads/frontend/
+sudo /opt/yourads/backend/.venv/bin/python -m pip install \
+  -r /opt/yourads/backend/requirements.txt
+```
+
+If the systemd unit or Nginx templates changed, install those reviewed files from the extracted release:
+
+```sh
+sudo install -o root -g root -m 0644 /tmp/yourads-release/deploy/systemd/yourads.service \
+  /etc/systemd/system/yourads.service
+sudo systemctl daemon-reload
+sudo install -o root -g root -m 0644 /tmp/yourads-release/deploy/nginx/yourads-https.conf \
+  /etc/nginx/sites-available/yourads
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+Only run the commands for deployment files that changed. Keep production values in the server's `.env` files; never
+copy a local `.env` over the runtime environment. Apply database migrations separately with the root-only migration
+environment, then start and check the app:
+
+```sh
+sudo systemd-run --wait --collect \
+  --property=WorkingDirectory=/opt/yourads/backend \
+  --property=EnvironmentFile=/etc/yourads/migration.env \
+  --setenv=YOURADS_SKIP_DOTENV=1 \
+  /opt/yourads/backend/.venv/bin/python -m alembic upgrade head
+sudo systemctl start yourads
+sudo systemctl status yourads --no-pager
+curl -fsS http://127.0.0.1:8000/api/health
+curl -fsS https://youradds.co/api/health
+sudo journalctl -u yourads -n 100 --no-pager
+```
+
+Keep the `/opt/yourads/releases/$backup_id` snapshot until the deployment is verified. If code or health checks fail,
+restore the previous code and dependency set:
+
+```sh
+sudo systemctl stop yourads
+sudo rsync -a --delete --chown=root:yourads \
+  --exclude='/.env*' --exclude='/.venv/' --exclude='/data/' --exclude='/__pycache__/' \
+  "/opt/yourads/releases/$backup_id/backend/" /opt/yourads/backend/
+sudo rsync -a --delete --chown=root:yourads \
+  "/opt/yourads/releases/$backup_id/frontend/" /opt/yourads/frontend/
+sudo /opt/yourads/backend/.venv/bin/python -m pip install \
+  -r "/opt/yourads/releases/$backup_id/requirements.lock"
+sudo systemctl start yourads
+curl -fsS https://youradds.co/api/health
+```
+
+Do not automatically run `alembic downgrade` on production. If a schema migration is not backward-compatible, restore
+a verified database backup or deploy a forward fix. After verification, remove the uploaded archive and extracted
+staging directory from `/tmp`.
+
+Keep one worker. Back up Postgres and the persistent state directory together; record the deployed commit, Python and
+dependency versions, Clerk instance, and secret-key backup location. Watch systemd logs, Nginx access/error logs, disk,
+memory, Postgres connections, and external AI/provider spend.
 
 This single EC2 host is a first live baseline, not highly available. Its local media and in-process jobs are not shared
 or coordinated across multiple instances. A future scale-out should move media/jobs to shared durable services and

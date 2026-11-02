@@ -15,8 +15,9 @@ is a separate administrative connection used for Alembic and the offline importe
 Never commit connection URLs or credentials. Use a deployment secret store or a private ignored `.env` file. PostgreSQL
 URLs accept `postgres://`, `postgresql://`, and `postgresql+psycopg://`; the app normalizes the first two. For remote
 connections TLS is mandatory. Prefer `sslmode=verify-full` with the server CA certificate from the project; the
-session pooler is the IPv4 choice for a persistent backend when direct IPv6 is unavailable. Do not use the transaction
-pooler for this deployment because first-user signup uses transaction-scoped advisory locking.
+shared session pooler on port `5432` is the IPv4 choice for a persistent backend when direct IPv6 is unavailable. Do
+not use the shared transaction pooler on port `6543`: first-user signup uses transaction-scoped advisory locking, and
+this app encountered intermittent prepared-statement errors while using transaction mode.
 
 The application-side pool starts at five connections with five overflow connections, a 15-second pool timeout,
 10-second connection timeout, and pre-ping. Run one application process initially. The in-process video recovery and

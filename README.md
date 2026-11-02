@@ -24,7 +24,8 @@ Local credentials are in ignored `backend/.env`; database files persist in ignor
 The backend requires a migrated PostgreSQL database; startup never creates or changes tables. For a Supabase
 project, keep the private `yourads` schema out of the Data API exposed-schema list and use a restricted runtime
 database role. See [the database migration runbook](backend/docs/database-migration.md) and the
-[EC2 + Nginx deployment guide](backend/docs/ec2-nginx-deployment.md).
+[EC2 + Nginx deployment guide](backend/docs/ec2-nginx-deployment.md). The current server state is recorded in the
+[EC2 operations record](backend/docs/ec2-server-operations.md).
 
 ## Accounts (multi-user)
 

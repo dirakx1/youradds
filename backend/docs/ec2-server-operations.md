@@ -35,8 +35,7 @@ The runtime copy is `/opt/yourads/backend/.env`, mode `0640`, owner `root:yourad
 ## PostgreSQL
 
 - The app uses the managed Supabase PostgreSQL project, database `postgres`, PostgreSQL 17.11, through its shared
-  pooler on port `6543` (transaction mode). Supabase uses port `5432` for shared session mode; see
-  [Supabase connection modes](https://supabase.com/docs/guides/database/connecting-to-postgres).
+  session pooler on port `5432`; see [Supabase connection modes](https://supabase.com/docs/guides/database/connecting-to-postgres).
 - Client TLS uses `sslmode=verify-full` with the Supabase project CA at
   `/usr/local/share/ca-certificates/supabase-prod-ca-2021.crt`. The certificate is public, mode `0644`, owner
   `root:yourads`; it is readable by the sandboxed service account. Do not use `sslrootcert=system` for this Supabase
@@ -50,10 +49,12 @@ The runtime copy is `/opt/yourads/backend/.env`, mode `0640`, owner `root:yourad
 - **Outstanding privilege reduction:** the runtime credential needs to be moved to a separate least-privilege role;
   database account names and grants for the live project belong in the private deployment inventory. Preserve a
   separate administrative credential for Alembic and keep it out of the app runtime environment.
-- **Pooler follow-up:** the checked-in database migration guide recommends shared session mode for this persistent app
-  because account provisioning uses `pg_advisory_xact_lock`; the current URLs use port `6543` (transaction mode).
-  Verify the project's connection settings and move both URLs to the shared session pooler on port `5432` before
-  treating the deployment as fully aligned with that guide.
+- **Resolved intermittent 500s:** the app initially used Supabase's transaction pooler on port `6543`. Recent logs
+  showed `DuplicatePreparedStatement`, `InvalidSqlStatementName`, and `ProtocolViolation` errors. The operator,
+  runtime, and migration URLs were moved to session mode on port `5432`, retaining verified TLS. The operator-held
+  runtime and migration URLs, server runtime URL, and root-only migration URL all connected successfully afterward.
+  The app was restarted and its public health endpoint returned 200. Recheck application logs after normal traffic to
+  confirm the prepared-statement errors stay clear.
 
 ## Nginx and HTTPS
 
@@ -92,14 +93,15 @@ systemctl list-timers --all | grep certbot
 ```
 
 For a future migration, run Alembic from `/opt/yourads/backend` using the root-only migration environment file; do
-not start the app with the migration URL. After changing application files or runtime settings, restart the service
-with `sudo systemctl restart yourads` and verify the health endpoint. No automatic application-code deployment is
-configured.
+not start the app with the migration URL. For code releases, follow the [update and redeploy procedure](ec2-nginx-deployment.md#update-and-redeploy-the-app),
+which snapshots the previous code, preserves server-only files, installs dependencies, applies migrations, and checks
+health. For a runtime environment change only, restart `yourads` and verify the health endpoint. No automatic
+application-code deployment is configured.
 
 ## Secret-file housekeeping
 
 Environment files contain production database credentials and application/provider secrets. Keep them out of Git,
-terminal output, and support logs. Root-only `.env` backups may remain under `/opt/yourads/backend`; review and remove
-obsolete copies after confirming the active runtime and migration configurations. The CA certificate is public and is
-not a secret. The operator copy `/home/ubuntu/yourads.env` includes the migration URL; do not copy that file directly
-over the app's runtime `.env`.
+terminal output, and support logs. Root-only `.env` backups may remain under `/opt/yourads/backend`,
+`/etc/yourads`, and `/home/ubuntu`; review and remove obsolete copies after confirming the active runtime and migration
+configurations. The CA certificate is public and is not a secret. The operator copy `/home/ubuntu/yourads.env`
+includes the migration URL; do not copy that file directly over the app's runtime `.env`.
