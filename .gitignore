@@ -1,5 +1,6 @@
 .venv/
 *.db
 .env
+*.pem
 __pycache__/
 data/
