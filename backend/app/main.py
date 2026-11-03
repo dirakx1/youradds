@@ -15,7 +15,7 @@ from .config import PLATFORMS, validate_clerk_config
 from .db import check_database_revision, dispose_engine, engine, session_scope
 from .models import Campaign, Metric
 from .platforms import make as make_platform
-from . import whatsapp, creatives, videos, cutout
+from . import whatsapp, creatives, videos, cutout, pages
 
 
 @asynccontextmanager
@@ -46,14 +46,9 @@ app.include_router(videos.router)
 app.include_router(cutout.router)
 
 
-@app.get("/sign-in", include_in_schema=False)
-@app.get("/sign-up", include_in_schema=False)
-@app.get("/forgot-password", include_in_schema=False)
-@app.get("/sso-callback", include_in_schema=False)
-@app.get("/account", include_in_schema=False)
-def auth_shell():
-    from fastapi.responses import FileResponse
-    return FileResponse(Path(__file__).resolve().parents[2] / "frontend" / "index.html")
+pages.register(app)
+
+
 Platform = Literal["meta", "tiktok", "google"]
 
 

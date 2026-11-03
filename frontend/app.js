@@ -1,15 +1,16 @@
-import { auth } from './auth.js?v=profile-settings-1';
+import { auth } from './auth.js?v=i18n-1';
+import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=i18n-1';
 
 const authPollers = new Set();
 
 const $ = (s, el = document) => el.querySelector(s);
-const money = n => '$' + Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+const money = n => '$' + Number(n || 0).toLocaleString(locale, { maximumFractionDigits: 2 });
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pill = p => `<span class="pill ${esc(p)}">${esc(p)}</span>`;
 
 async function api(path, opts = {}) {
   const token = await auth.token();
-  if (!token && path !== '/auth/config') { showAuth(); throw new Error('Please sign in.'); }
+  if (!token && path !== '/auth/config') { showAuth(); throw new Error(t('Please sign in.')); }
   const headers = new Headers(opts.headers || {});
   if (!headers.has('Content-Type') && opts.body) headers.set('Content-Type', 'application/json');
   if (token) headers.set('Authorization', `Bearer ${token}`);
@@ -17,10 +18,10 @@ async function api(path, opts = {}) {
     ...opts, headers,
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
-  if (r.status === 401 && !path.startsWith('/auth/')) { showAuth(); throw new Error('Your session ended. Please sign in again.'); }
+  if (r.status === 401 && !path.startsWith('/auth/')) { showAuth(); throw new Error(t('Your session ended. Please sign in again.')); }
   if (!r.ok) {
     const d = (await r.json().catch(() => ({}))).detail;
-    throw new Error(Array.isArray(d) ? d.map(x => x.msg).join('; ') : d || r.statusText);
+    throw new Error(t(Array.isArray(d) ? d.map(x => x.msg).join('; ') : d || r.statusText));
   }
   return r.status === 204 ? null : r.json();
 }
@@ -47,19 +48,19 @@ async function cutoutButton(form) {
   const btn = $('button', wrap), note = $('span', wrap), prev = $('.cutprev', wrap);
   let ok = false;
   try { ok = (await api('/tools/cutout/status')).available; } catch { }
-  if (!ok) { note.textContent = 'Not installed (pip install rembg onnxruntime opencv-python-headless numpy)'; return; }
+  if (!ok) { note.textContent = t('Not installed (pip install rembg onnxruntime opencv-python-headless numpy)'); return; }
   btn.disabled = false;
   const toDataURL = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
   btn.onclick = async () => {
-    const f = input.files[0]; if (!f) return note.textContent = 'Choose an image first';
-    if (f.size > 8e6) return note.textContent = 'Image over 8MB';
-    btn.disabled = true; note.textContent = 'Removing background… (the first run downloads a ~180MB model, can take a minute)';
+    const f = input.files[0]; if (!f) return note.textContent = t('Choose an image first');
+    if (f.size > 8e6) return note.textContent = t('Image over 8MB');
+    btn.disabled = true; note.textContent = t('Removing background… (the first run downloads a ~180MB model, can take a minute)');
     try {
       const r = await api('/tools/cutout', { method: 'POST', body: { image: await toDataURL(f) } });
       const blob = await (await fetch(r.image)).blob();
       const dt = new DataTransfer(); dt.items.add(new File([blob], 'product.png', { type: 'image/png' })); input.files = dt.files;
       prev.innerHTML = `<img src="${r.image}" alt="" style="max-height:120px;margin-top:6px;border-radius:6px;background:repeating-conic-gradient(#8884 0 25%,transparent 0 50%) 0 0/14px 14px">`;
-      note.textContent = `Done (${r.width}×${r.height}) – this transparent PNG will be used.`;
+      note.textContent = t('Done ({w}×{h}) – this transparent PNG will be used.', { w: r.width, h: r.height });
     } catch (x) { note.textContent = x.message; }
     btn.disabled = false;
   };
@@ -67,17 +68,17 @@ async function cutoutButton(form) {
 
 const views = {
   async dashboard(el) {
-    const d = await api('/dashboard'), t = d.totals;
+    const d = await api('/dashboard'), tot = d.totals;
     const kpi = (l, v) => `<div class="card kpi"><small>${l}</small><b>${v}</b></div>`;
     el.innerHTML = `<h2>Dashboard <span class="muted">· last 14 days</span></h2>
-      ${d.has_demo ? '<div class="card">Showing <b>sample data</b> until you connect your own ad accounts. <button id="rmdemo">Remove sample data</button></div>' : ''}
-      <div class="grid">${kpi('Spend', money(t.spend))}${kpi('Revenue', money(t.revenue))}${kpi('ROAS', t.roas.toFixed(2) + 'x')}
-      ${kpi('Conversions', t.conversions)}${kpi('CTR', t.ctr.toFixed(2) + '%')}${kpi('CPA', t.cpa ? money(t.cpa) : '–')}</div>
+      ${d.has_demo ? `<div class="card">${t('Showing <b>sample data</b> until you connect your own ad accounts. ')}<button id="rmdemo">Remove sample data</button></div>` : ''}
+      <div class="grid">${kpi('Spend', money(tot.spend))}${kpi('Revenue', money(tot.revenue))}${kpi('ROAS', tot.roas.toFixed(2) + 'x')}
+      ${kpi('Conversions', tot.conversions)}${kpi('CTR', tot.ctr.toFixed(2) + '%')}${kpi('CPA', tot.cpa ? money(tot.cpa) : '–')}</div>
       <div class="card">${lineChart(d.daily, ['spend', 'revenue'], ['#e74c3c', '#2ecc71'])}</div>
       <div class="card scroll"><table><tr><th>Platform<th>Spend<th>Revenue<th>ROAS<th>Conversions<th>Clicks</tr>
       ${d.by_platform.map(p => `<tr><td>${pill(p.platform)}<td>${money(p.spend)}<td>${money(p.revenue)}<td>${(p.revenue / p.spend || 0).toFixed(2)}x<td>${p.conversions}<td>${p.clicks}`).join('')}</table></div>`;
     const rm = $('#rmdemo', el);
-    if (rm) rm.onclick = async () => { if (confirm('Delete the sample campaigns? Your real campaigns are kept.')) { await api('/demo', { method: 'DELETE' }); views.dashboard(el); } };
+    if (rm) rm.onclick = async () => { if (confirm(t('Delete the sample campaigns? Your real campaigns are kept.'))) { await api('/demo', { method: 'DELETE' }); views.dashboard(el); } };
   },
 
   async campaigns(el) {
@@ -100,13 +101,13 @@ const views = {
       e.preventDefault();
       const b = Object.fromEntries(new FormData(e.target));
       b.daily_budget = +b.daily_budget;
-      try { const r = await api('/campaigns', { method: 'POST', body: b }); if (r.sync_error) alert('Saved locally; platform sync failed: ' + r.sync_error); views.campaigns(el); }
+      try { const r = await api('/campaigns', { method: 'POST', body: b }); if (r.sync_error) alert(t('Saved locally; platform sync failed: {e}', { e: r.sync_error })); views.campaigns(el); }
       catch (x) { $('#err').textContent = x.message; }
     };
     el.onclick = async e => {
       const b = e.target.closest('button'); if (!b) return;
       if (b.dataset.t) await api(`/campaigns/${b.dataset.t}/status?status=${b.dataset.s}`, { method: 'POST' });
-      else if (b.dataset.d && confirm('Delete campaign?')) await api('/campaigns/' + b.dataset.d, { method: 'DELETE' });
+      else if (b.dataset.d && confirm(t('Delete campaign?'))) await api('/campaigns/' + b.dataset.d, { method: 'DELETE' });
       else return;
       views.campaigns(el);
     };
@@ -156,7 +157,7 @@ const views = {
         <label style="grid-column:1/-1">Real customer testimonials (optional, one per line: <code>Name: quote</code>)<textarea name="tests" rows="2" maxlength="600"></textarea></label>
         <fieldset style="grid-column:1/-1;border:0;padding:0;margin:0"><span class="muted">Platforms</span><br>
           ${Object.keys(opt.formats).map(p => `<label style="display:inline-block;margin-right:16px;width:auto"><input type="checkbox" name="pf" value="${p}" checked style="display:inline;width:auto"> ${label[p]} <span class="muted">(${Object.values(opt.formats[p]).map(s => s.join('×')).join(', ')})</span></label>`).join('')}</fieldset>
-        <label style="grid-column:1/-1">${opt.scene_available ? `<input type="checkbox" name="scene" style="display:inline;width:auto"> AI scene backgrounds <span class="muted">(Higgsfield · a few cents per image, capped at $${opt.scene_cost_cap_usd}/run)</span>` : '<span class="muted">AI scene backgrounds: add your Higgsfield API key on the <a href="#connections">Connections</a> page to enable</span>'}
+        <label style="grid-column:1/-1">${opt.scene_available ? `<input type="checkbox" name="scene" style="display:inline;width:auto"> AI scene backgrounds <span class="muted">(Higgsfield · a few cents per image, capped at $${opt.scene_cost_cap_usd}/run)</span>` : `<span class="muted">${t('AI scene backgrounds: add your Higgsfield API key on the <a href="#connections">Connections</a> page to enable')}</span>`}
           <input name="scene_hint" maxlength="200" placeholder="Scene idea, e.g. cozy bedroom at night (don't name the product)"></label>
         <button class="pri">Generate creatives</button></form>
         <p class="muted" style="margin:10px 0 0">Reviews, ratings and customer counts are never invented — they only appear if you enter them. 9:16 formats keep text inside platform safe zones.</p>
@@ -166,23 +167,23 @@ const views = {
     const file = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
     $('#f').onsubmit = async e => {
       e.preventDefault(); const fd = new FormData(e.target), btn = $('button.pri', e.target); $('#err').textContent = '';
-      const platforms = fd.getAll('pf'); if (!platforms.length) return $('#err').textContent = 'Pick at least one platform';
+      const platforms = fd.getAll('pf'); if (!platforms.length) return $('#err').textContent = t('Pick at least one platform');
       const testimonials = (fd.get('tests') || '').split('\n').map(l => l.trim()).filter(l => l.includes(':'))
         .map(l => ({ name: l.slice(0, l.indexOf(':')).trim(), text: l.slice(l.indexOf(':') + 1).trim() }));
       const body = { platforms, testimonials };
       for (const k of ['product', 'description', 'audience', 'language', 'tone', 'theme', 'price', 'social_proof']) body[k] = fd.get(k) || '';
-      const f = fd.get('img'); if (f && f.size) { if (f.size > 8e6) return $('#err').textContent = 'Image over 8MB'; body.product_image = await file(f); }
+      const f = fd.get('img'); if (f && f.size) { if (f.size > 8e6) return $('#err').textContent = t('Image over 8MB'); body.product_image = await file(f); }
       body.scene = fd.get('scene') === 'on'; body.scene_hint = fd.get('scene_hint') || '';
-      btn.disabled = true; btn.textContent = 'Generating…';
-      try { const r = await api('/creatives/generate', { method: 'POST', body }); if (r.warnings.length || r.scene_cost_usd) alert((r.scene_cost_usd ? 'Scene cost: $' + r.scene_cost_usd + '\\n' : '') + r.warnings.join('\\n')); views.creatives(el); }
-      catch (x) { $('#err').textContent = x.message; btn.disabled = false; btn.textContent = 'Generate creatives'; }
+      btn.disabled = true; btn.textContent = t('Generating…');
+      try { const r = await api('/creatives/generate', { method: 'POST', body }); if (r.warnings.length || r.scene_cost_usd) alert((r.scene_cost_usd ? t('Scene cost: ${c}', { c: r.scene_cost_usd }) + '\\n' : '') + r.warnings.join('\\n')); views.creatives(el); }
+      catch (x) { $('#err').textContent = x.message; btn.disabled = false; btn.textContent = t('Generate creatives'); }
     };
     el.onchange = async e => {
       const id = e.target.dataset.attach; if (!id || !e.target.value) return;
-      await api(`/creatives/${id}/attach`, { method: 'POST', body: { campaign_id: +e.target.value } }); alert('Attached – campaign text updated');
+      await api(`/creatives/${id}/attach`, { method: 'POST', body: { campaign_id: +e.target.value } }); alert(t('Attached – campaign text updated'));
     };
     el.onclick = async e => {
-      const b = e.target.closest('button[data-del]'); if (!b || !confirm('Delete creative?')) return;
+      const b = e.target.closest('button[data-del]'); if (!b || !confirm(t('Delete creative?'))) return;
       await api('/creatives/' + b.dataset.del, { method: 'DELETE' }); views.creatives(el);
     };
   },
@@ -193,11 +194,11 @@ const views = {
     const label = { meta: 'Meta (Reel 9:16, Feed 1:1)', tiktok: 'TikTok (9:16)', google: 'Google / YouTube (16:9)' };
     let timer = null;
     const mins = s => s == null ? '' : s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
-    const stateText = v => v.status === 'failed' ? '⚠ ' + esc(v.error || 'failed')
-      : v.status === 'compositing' ? 'Adding your product, text and CTA…'
-      : v.provider_status === 'in_progress' ? `Rendering at Higgsfield… ${mins(v.elapsed_s)} (usually a few minutes)`
-      : v.provider_status === 'queued' ? `Waiting in Higgsfield's queue… ${mins(v.elapsed_s)}`
-      : `Starting… ${mins(v.elapsed_s)}`;
+    const stateText = v => v.status === 'failed' ? '⚠ ' + esc(t(v.error || 'failed'))
+      : v.status === 'compositing' ? t('Adding your product, text and CTA…')
+      : v.provider_status === 'in_progress' ? t('Rendering at Higgsfield… {t} (usually a few minutes)', { t: mins(v.elapsed_s) })
+      : v.provider_status === 'queued' ? t('Waiting in Higgsfield\'s queue… {t}', { t: mins(v.elapsed_s) })
+      : t('Starting… {t}', { t: mins(v.elapsed_s) });
     const render = list => {
       $('#vlist').innerHTML = list.map(v => `<div class="card" style="margin:0">
         ${v.status === 'done' ? `<video src="/api/videos/${v.id}/file" controls preload="metadata" style="width:100%;max-height:340px;border-radius:8px;background:#000"></video>`
@@ -207,7 +208,7 @@ const views = {
         ${v.resumable ? `<button type="button" data-resume="${v.id}">Check again</button>` : ''}
         ${v.status === 'generating' && v.provider_status === 'queued' ? `<button type="button" data-cancel="${v.id}">Cancel (refund)</button>` : ''}
         <button type="button" data-del="${v.id}">✕</button></div>
-        ${v.request_id && v.status !== 'done' ? `<p class="muted" style="font-size:11px;margin:6px 0 0">Request ${esc(v.request_id)}</p>` : ''}</div>`).join('') || '<p class="muted">No videos yet.</p>';
+        ${v.request_id && v.status !== 'done' ? `<p class="muted" style="font-size:11px;margin:6px 0 0">${esc(t('Request {id}', { id: v.request_id }))}</p>` : ''}</div>`).join('') || '<p class="muted">No videos yet.</p>';
     };
     const refresh = async () => {
       if (location.hash !== '#videos') { if (timer) { clearInterval(timer); authPollers.delete(timer); timer = null; } return; }
@@ -216,7 +217,7 @@ const views = {
     };
     const poll = () => { if (timer) { clearInterval(timer); authPollers.delete(timer); } timer = setInterval(refresh, 4000); authPollers.add(timer); };
     el.innerHTML = `<h2>Video Studio <span class="muted">· AI background video + your product, text and CTA</span></h2>
-      ${opt.scene_available ? '' : '<p class="toast">Add your Higgsfield API key on the <a href="#connections">Connections</a> page to enable video.</p>'}
+      ${opt.scene_available ? '' : `<p class="toast">${t('Add your Higgsfield API key on the <a href="#connections">Connections</a> page to enable video.')}</p>`}
       <div class="card"><form id="f" class="row">
         <label>Product name<input name="product" required maxlength="80"></label>
         <label>Description (facts only)<input name="description" maxlength="500"></label>
@@ -239,15 +240,15 @@ const views = {
     const file = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
     $('#f').onsubmit = async e => {
       e.preventDefault(); const fd = new FormData(e.target), btn = $('button.pri', e.target); $('#err').textContent = '';
-      const platforms = fd.getAll('pf'); if (!platforms.length) return $('#err').textContent = 'Pick at least one platform';
+      const platforms = fd.getAll('pf'); if (!platforms.length) return $('#err').textContent = t('Pick at least one platform');
       const body = { platforms, duration: +fd.get('duration') };
       for (const k of ['product', 'description', 'audience', 'language', 'theme', 'price', 'social_proof', 'scene_hint', 'resolution']) body[k] = fd.get(k) || '';
-      const f = fd.get('img'); if (f && f.size) { if (f.size > 8e6) return $('#err').textContent = 'Image over 8MB'; body.product_image = await file(f); }
+      const f = fd.get('img'); if (f && f.size) { if (f.size > 8e6) return $('#err').textContent = t('Image over 8MB'); body.product_image = await file(f); }
       btn.disabled = true;
       try {
         const est = await api('/videos/estimate', { method: 'POST', body });
-        if (est.total_usd > est.cap_usd) throw new Error(`Estimated $${est.total_usd.toFixed(2)} exceeds your cap of $${est.cap_usd.toFixed(2)} (VIDEO_MAX_USD). Try fewer platforms, a shorter clip or Draft quality.`);
-        if (!confirm(`Estimated cost: ~$${est.total_usd.toFixed(2)} (${Object.keys(est.per_ratio).length} clip(s)). Billed to your Higgsfield balance. Generate?`)) { btn.disabled = false; return; }
+        if (est.total_usd > est.cap_usd) throw new Error(t('Estimated ${est} exceeds your cap of ${cap} (VIDEO_MAX_USD). Try fewer platforms, a shorter clip or Draft quality.', { est: est.total_usd.toFixed(2), cap: est.cap_usd.toFixed(2) }));
+        if (!confirm(t('Estimated cost: ~${est} ({n} clip(s)). Billed to your Higgsfield balance. Generate?', { est: est.total_usd.toFixed(2), n: Object.keys(est.per_ratio).length }))) { btn.disabled = false; return; }
         await api('/videos/generate', { method: 'POST', body }); await refresh(); poll();
       } catch (x) { $('#err').textContent = x.message; }
       btn.disabled = false;
@@ -256,9 +257,9 @@ const views = {
       const b = e.target.closest('button'); if (!b) return;
       try {
         if (b.dataset.resume) { await api(`/videos/${b.dataset.resume}/resume`, { method: 'POST' }); await refresh(); poll(); }
-        else if (b.dataset.cancel) { if (!confirm('Cancel this clip? Higgsfield refunds it if still queued.')) return; await api(`/videos/${b.dataset.cancel}/cancel`, { method: 'POST' }); refresh(); }
-        else if (b.dataset.del && confirm('Delete video?')) { await api('/videos/' + b.dataset.del, { method: 'DELETE' }); refresh(); }
-      } catch (x) { alert(x.message); }
+        else if (b.dataset.cancel) { if (!confirm(t('Cancel this clip? Higgsfield refunds it if still queued.'))) return; await api(`/videos/${b.dataset.cancel}/cancel`, { method: 'POST' }); refresh(); }
+        else if (b.dataset.del && confirm(t('Delete video?'))) { await api('/videos/' + b.dataset.del, { method: 'DELETE' }); refresh(); }
+      } catch (x) { alert(t(x.message)); }
     };
     await refresh(); const l = await api('/videos'); if (l.some(v => ['queued', 'generating', 'compositing'].includes(v.status))) poll();
   },
@@ -266,15 +267,15 @@ const views = {
   async optimizer(el) {
     const recs = await api('/ai/recommendations');
     el.innerHTML = `<h2>Optimizer</h2>` + (recs.length ? recs.map((r, i) => `
-      <div class="card sev-${r.severity}"><b>${esc(r.campaign)}</b> ${pill(r.platform)} <span class="muted">· ${r.action}</span>
+      <div class="card sev-${r.severity}"><b>${esc(r.campaign)}</b> ${pill(r.platform)} <span class="muted">· ${t(r.action)}</span>
       <p>${esc(r.reason)}</p>
-      ${r.action === 'creative' ? '<a href="#studio">Open AI Studio →</a>' : `<button class="pri" data-i="${i}">Apply: ${r.action === 'pause' ? 'pause campaign' : 'set budget ' + money(r.value)}</button>`}</div>`).join('')
+      ${r.action === 'creative' ? '<a href="#studio">Open AI Studio →</a>' : `<button class="pri" data-i="${i}">${r.action === 'pause' ? t('Apply: pause campaign') : t('Apply: set budget {v}', { v: money(r.value) })}</button>`}</div>`).join('')
       : '<div class="card">No recommendations – all campaigns look healthy.</div>');
     el.onclick = async e => {
       const b = e.target.closest('button[data-i]'); if (!b) return;
       const r = recs[b.dataset.i];
       const res = await api('/ai/apply', { method: 'POST', body: { campaign_id: r.campaign_id, action: r.action, value: r.value } });
-      if (res.sync_error) alert('Platform sync failed: ' + res.sync_error);
+      if (res.sync_error) alert(t('Platform sync failed: {e}', { e: res.sync_error }));
       views.optimizer(el);
     };
   },
@@ -283,7 +284,7 @@ const views = {
   async whatsapp(el) {
     const [st, leads, camps, cfg] = await Promise.all([api('/whatsapp/status'), api('/leads'), api('/campaigns'), api('/whatsapp/settings')]);
     const stage = s => `<span class="pill" style="background:${{ new: '#888', engaged: '#3498db', qualified: '#f39c12', won: '#27ae60', lost: '#7f8c8d' }[s]}">${s}</span>`;
-    el.innerHTML = `<h2>WhatsApp Sales <span class="muted">· ${st.mode} mode</span></h2>
+    el.innerHTML = `<h2>WhatsApp Sales <span class="muted">· ${t('{mode} mode', { mode: t(st.mode) })}</span></h2>
       ${st.live ? '' : '<p class="muted">Demo mode: messages are simulated, nothing is sent. Add your WhatsApp credentials on the Connections page to go live.</p>'}
       <div class="grid" style="grid-template-columns:1fr 1.4fr;align-items:start">
         <div>
@@ -292,7 +293,7 @@ const views = {
           <div class="card"><b>Simulate a customer</b><form id="sim" class="row" style="margin-top:8px">
             <label>Phone<input name="phone" value="5511999990000" required></label>
             <label>From campaign<select name="campaign_id"><option value="">(none)</option>${camps.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></label>
-            <label>Message<input name="text" value="Hi, how much is it?" required></label><button class="pri">Send</button></form></div>
+            <label>Message<input name="text" value="${esc(t('Hi, how much is it?'))}" required></label><button class="pri">Send</button></form></div>
           <div class="card"><b>Sales knowledge</b> <span class="muted">(the only facts the AI may use)</span>
             <textarea id="kb" rows="5" style="width:100%;margin:8px 0">${esc(cfg.knowledge)}</textarea><button id="savekb">Save</button>
             <button id="fu">Run follow-ups now</button></div>
@@ -305,11 +306,11 @@ const views = {
         <form id="reply" class="row" style="grid-template-columns:1fr auto"><input name="text" placeholder="Reply as human (pauses AI)…" required autocomplete="off"><button class="pri">Send</button></form>
         <p>${l.handoff ? `<button data-h="0">Give back to AI</button>` : `<button data-h="1">Take over</button>`}
         ${l.stage !== 'won' ? `<button data-won>Mark sold…</button>` : ''}</p>`;
-      $('#reply').onsubmit = async e => { e.preventDefault(); const r = await api(`/leads/${id}/send`, { method: 'POST', body: { text: e.target.text.value } }); if (r.error) alert(r.error); views.whatsapp(el).then(() => open(id)); };
+      $('#reply').onsubmit = async e => { e.preventDefault(); const r = await api(`/leads/${id}/send`, { method: 'POST', body: { text: e.target.text.value } }); if (r.error) alert(t(r.error)); views.whatsapp(el).then(() => open(id)); };
       $('#chatbox').onclick = async e => {
         const b = e.target.closest('button'); if (!b) return;
         if (b.dataset.h !== undefined) await api(`/leads/${id}/handoff?on=${b.dataset.h === '1'}`, { method: 'POST' });
-        else if ('won' in b.dataset) { const v = parseFloat(prompt('Sale value ($)?')); if (!(v > 0)) return; try { await api(`/leads/${id}/won`, { method: 'POST', body: { value: v } }); } catch (x) { return alert(x.message); } }
+        else if ('won' in b.dataset) { const v = parseFloat(prompt(t('Sale value ($)?'))); if (!(v > 0)) return; try { await api(`/leads/${id}/won`, { method: 'POST', body: { value: v } }); } catch (x) { return alert(t(x.message)); } }
         views.whatsapp(el).then(() => open(id));
       };
     };
@@ -320,8 +321,8 @@ const views = {
       const r = await api('/whatsapp/simulate', { method: 'POST', body: b });
       views.whatsapp(el).then(() => r.lead_id > 0 && open(r.lead_id));
     };
-    $('#savekb').onclick = async () => { await api('/whatsapp/settings', { method: 'PUT', body: { knowledge: $('#kb').value } }); alert('Saved'); };
-    $('#fu').onclick = async () => alert((await api('/whatsapp/followups/run', { method: 'POST' })).sent + ' follow-ups sent');
+    $('#savekb').onclick = async () => { await api('/whatsapp/settings', { method: 'PUT', body: { knowledge: $('#kb').value } }); alert(t('Saved')); };
+    $('#fu').onclick = async () => alert(t('{n} follow-ups sent', { n: (await api('/whatsapp/followups/run', { method: 'POST' })).sent }));
   },
 
   async chat(el) {
@@ -330,7 +331,7 @@ const views = {
     const log = $('#log'), add = (c, t) => { const d = document.createElement('div'); d.className = 'msg ' + c; d.textContent = t; log.append(d); };
     $('#f').onsubmit = async e => {
       e.preventDefault(); const q = e.target.q.value; e.target.q.value = ''; add('u', q);
-      try { add('a', (await api('/chat', { method: 'POST', body: { question: q } })).answer); } catch (x) { add('a', 'Error: ' + x.message); }
+      try { add('a', (await api('/chat', { method: 'POST', body: { question: q } })).answer); } catch (x) { add('a', t('Error: {e}', { e: t(x.message) })); }
     };
   },
 
@@ -338,14 +339,14 @@ const views = {
     const cs = await api('/connections');
     const hint = { meta: 'Also used for Instagram placements.', whatsapp: 'In Meta\'s WhatsApp webhook settings, set the callback URL and verify token shown below, and subscribe to "messages".' };
     el.innerHTML = `<h2>Connections</h2>
-      <p class="muted">These credentials belong to <b>your account only</b>. They are stored encrypted and never shown again after saving - leave a secret blank to keep it.</p>
+      <p class="muted">${t('These credentials belong to <b>your account only</b>. They are stored encrypted and never shown again after saving - leave a secret blank to keep it.')}</p>
       ${cs.map(c => `<form class="card conn" data-s="${c.service}"${c.connected ? ' data-has="1"' : ''}>
         <h3 style="margin-top:0">${esc(c.title)} <span class="conn-status muted" data-status>${c.connected ? '● checking…' : '● not connected'}</span></h3>
         ${hint[c.service] ? `<p class="muted">${hint[c.service]}</p>` : ''}
         ${c.webhook_path ? `<p>Callback URL: <code>${esc(location.origin + c.webhook_path)}</code></p>` : ''}
-        <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">${c.fields.map(f => `<label>${esc(f.label)}${f.required ? ' *' : ''}
+        <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">${c.fields.map(f => `<label>${esc(t(f.label))}${f.required ? ' *' : ''}
           <input name="${f.name}" type="${f.secret ? 'password' : 'text'}" autocomplete="off" value="${esc(f.value)}"
-            placeholder="${f.secret && f.set ? esc(f.masked) + ' (saved)' : esc(f.hint || '')}"></label>`).join('')}</div>
+            placeholder="${f.secret && f.set ? esc(f.masked) + esc(t(' (saved)')) : esc(t(f.hint || ''))}"></label>`).join('')}</div>
         <button class="pri" type="submit">Save</button>
         ${['meta', 'tiktok', 'google'].includes(c.service) && c.connected ? `<button type="button" data-import="${c.service}">Test &amp; import campaigns</button>` : ''}
         ${c.connected && !c.shared ? '<button type="button" data-clear>Disconnect</button>' : ''}
@@ -355,17 +356,17 @@ const views = {
       ok: ['st-active', '● connected'], invalid: ['toast', '● credentials rejected'], no_balance: ['st-warn', '● connected, no balance'],
       error: ['st-warn', '● could not verify'], server_key: ['st-warn', '● server key set, sharing off'], not_connected: ['muted', '● not connected'] };
     const loadStatus = async force => {
-      el.querySelectorAll('[data-status]').forEach(b => { if (b.closest('form').dataset.has) { b.className = 'conn-status muted'; b.textContent = '● checking…'; } });
+      el.querySelectorAll('[data-status]').forEach(b => { if (b.closest('form').dataset.has) { b.className = 'conn-status muted'; b.textContent = t('● checking…'); } });
       let st = {};
       try { st = await api('/connections/status' + (force ? '?force=true' : '')); } catch { }
       el.querySelectorAll('form.conn').forEach(f => {
         const r = st[f.dataset.s], b = $('[data-status]', f);
-        if (!r) { if (f.dataset.has) { b.className = 'conn-status st-warn'; b.textContent = '● could not verify'; } return; }
+        if (!r) { if (f.dataset.has) { b.className = 'conn-status st-warn'; b.textContent = t('● could not verify'); } return; }
         const [cls, txt] = STATES[r.state] || STATES.error;
         b.className = 'conn-status ' + cls;
-        b.textContent = txt + (r.source === 'shared' ? ' (server key)' : '');
-        b.title = r.detail || '';
-        const d = $('.statusdetail', f); if (d) d.textContent = ['invalid', 'no_balance', 'error', 'server_key'].includes(r.state) ? r.detail : '';
+        b.textContent = t(txt) + (r.source === 'shared' ? t(' (server key)') : '');
+        b.title = t(r.detail || '');
+        const d = $('.statusdetail', f); if (d) d.textContent = ['invalid', 'no_balance', 'error', 'server_key'].includes(r.state) ? t(r.detail) : '';
       });
     };
     el.querySelectorAll('form.conn').forEach(f => {
@@ -379,18 +380,18 @@ const views = {
       const imp = $('[data-import]', f), clr = $('[data-clear]', f);
       $('[data-recheck]', f).onclick = () => loadStatus(true);
       if (imp) imp.onclick = async () => {
-        note.className = 'muted msgline'; note.textContent = 'Contacting ' + svc + '…';
-        try { const r = await api(`/connections/${svc}/import`, { method: 'POST' }); note.textContent = `Connection works. Imported ${r.imported} new campaign(s).`; }
+        note.className = 'muted msgline'; note.textContent = t('Contacting {svc}…', { svc });
+        try { const r = await api(`/connections/${svc}/import`, { method: 'POST' }); note.textContent = t('Connection works. Imported {n} new campaign(s).', { n: r.imported }); }
         catch (x) { note.textContent = x.message; note.className = 'toast msgline'; }
       };
-      if (clr) clr.onclick = async () => { if (confirm('Remove the saved ' + svc + ' credentials?')) { await api('/connections/' + svc, { method: 'DELETE' }); views.connections(el); } };
+      if (clr) clr.onclick = async () => { if (confirm(t('Remove the saved {svc} credentials?', { svc }))) { await api('/connections/' + svc, { method: 'DELETE' }); views.connections(el); } };
     });
     loadStatus(false);
   },
 
   async profile(el) {
     const user = (await auth.init()).user;
-    if (!user) throw new Error('Your session ended. Please sign in again.');
+    if (!user) throw new Error(t('Your session ended. Please sign in again.'));
     const email = user.primaryEmailAddress?.emailAddress || window.__youradsMe?.email || '';
     const fullName = user.fullName || [user.firstName, user.lastName].filter(Boolean).join(' ');
     const initials = (fullName || email || '?').trim().split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase();
@@ -483,7 +484,7 @@ function authButton(button, loading) {
 }
 
 function clerkError(error) {
-  return error?.errors?.map(item => item.longMessage || item.message).filter(Boolean).join(' ') || error?.message || 'Could not update your profile. Please try again.';
+  return error?.errors?.map(item => item.longMessage || item.message).filter(Boolean).join(' ') || error?.message || t('Could not update your profile. Please try again.');
 }
 
 function syncProfileIdentity(user, fallback = window.__youradsMe || {}) {
@@ -509,7 +510,7 @@ function syncProfileIdentity(user, fallback = window.__youradsMe || {}) {
 function showAuth() {
   document.body.classList.add('anon');
   const el = $('#view'); el.onclick = null;
-  const path = location.pathname;
+  const path = appPath;
   let mode = path === '/sign-up' ? 'signup' : path === '/forgot-password' ? 'reset' : path === '/account' ? 'account' : 'signin';
   let busy = false, email = '', name = '';
   const error = (message) => { const node = $('#autherr', el); if (node) node.textContent = message; };
@@ -520,21 +521,21 @@ function showAuth() {
     el.innerHTML = `<div class="card authbox${screen === 'callback' ? ' callback-card' : ''}"${screen === 'callback' ? ' data-state="loading" aria-busy="true"' : ''}>${screen === 'callback' ? '' : `<h2>${heading}</h2>`}${form ? '<p class="muted">Use yourads securely with email or Google.</p>' : ''}
       ${form ? `<button type="button" id="google" class="google-signin"><img src="https://developers.google.com/static/identity/images/g-logo.png" alt="" width="20" height="20">Continue with Google</button><p class="auth-divider"><span>OR</span></p>` : ''}
       <p class="toast" id="autherr" role="alert" aria-live="polite"></p>
-      ${screen === 'signin' ? `<form id="authf" class="stack"><label>Email<input name="email" type="email" required autocomplete="email"></label><label>Password<input name="password" type="password" required autocomplete="current-password"></label><button class="pri">Sign in</button><a class="forgot-password" href="/forgot-password">Forgot password?</a></form><p class="muted">New here? <a href="/sign-up">Create an account</a></p>` : ''}
-      ${screen === 'signup' && stage === 'form' ? `<form id="authf" class="stack"><div id="clerk-captcha"></div><label>Name (optional)<input name="name" autocomplete="name" maxlength="80"></label><label>Email<input name="email" type="email" required autocomplete="email"></label><label>Password<input name="password" type="password" required minlength="8" autocomplete="new-password"></label><label>Confirm password<input name="confirmPassword" type="password" required minlength="8" autocomplete="new-password"></label><label class="terms-consent"><input name="terms" type="checkbox" required><span>I agree to the <a href="/terms/" target="_blank" rel="noopener">Terms of Service</a> and acknowledge the <a href="/privacy/" target="_blank" rel="noopener">Privacy Policy</a>.</span></label><button class="pri">Create account</button></form><p class="muted">Already registered? <a href="/sign-in">Sign in</a></p>` : ''}
-      ${screen === 'signup' && stage === 'verify' ? `<form id="verifyf" class="stack"><p>Enter the code sent to <b>${esc(email)}</b>.</p><label>Email verification code<input name="code" inputmode="numeric" autocomplete="one-time-code" required></label><button class="pri">Verify email</button><button type="button" id="resend">Send a new code</button></form>` : ''}
+      ${screen === 'signin' ? `<form id="authf" class="stack"><label>Email<input name="email" type="email" required autocomplete="email"></label><label>Password<input name="password" type="password" required autocomplete="current-password"></label><button class="pri">Sign in</button><a class="forgot-password" href="${L('/forgot-password')}">Forgot password?</a></form><p class="muted">New here? <a href="${L('/sign-up')}">Create an account</a></p>` : ''}
+      ${screen === 'signup' && stage === 'form' ? `<form id="authf" class="stack"><div id="clerk-captcha"></div><label>Name (optional)<input name="name" autocomplete="name" maxlength="80"></label><label>Email<input name="email" type="email" required autocomplete="email"></label><label>Password<input name="password" type="password" required minlength="8" autocomplete="new-password"></label><label>Confirm password<input name="confirmPassword" type="password" required minlength="8" autocomplete="new-password"></label><label class="terms-consent"><input name="terms" type="checkbox" required><span>${t('I agree to the <a href="{terms}" target="_blank" rel="noopener">Terms of Service</a> and acknowledge the <a href="{privacy}" target="_blank" rel="noopener">Privacy Policy</a>.', { terms: L('/terms/'), privacy: L('/privacy/') })}</span></label><button class="pri">Create account</button></form><p class="muted">Already registered? <a href="${L('/sign-in')}">Sign in</a></p>` : ''}
+      ${screen === 'signup' && stage === 'verify' ? `<form id="verifyf" class="stack"><p>${t('Enter the code sent to <b>{email}</b>.', { email: esc(email) })}</p><label>Email verification code<input name="code" inputmode="numeric" autocomplete="one-time-code" required></label><button class="pri">Verify email</button><button type="button" id="resend">Send a new code</button></form>` : ''}
       ${screen === 'signin' && stage === 'device' ? `<form id="devicef" class="stack"><p>Enter the verification code sent to your email.</p><label>Email verification code<input name="code" inputmode="numeric" autocomplete="one-time-code" required></label><button class="pri">Verify device</button><button type="button" id="resend">Send a new code</button></form>` : ''}
-      ${screen === 'reset' ? `<form id="resetf" class="stack"><label>Email<input name="email" type="email" required autocomplete="email" value="${esc(email)}"></label>${stage !== 'form' ? `<label>Verification code<input name="code" inputmode="numeric" autocomplete="one-time-code" required></label><label>New password<input name="password" type="password" minlength="8" autocomplete="new-password" required></label><label>Confirm new password<input name="confirmPassword" type="password" minlength="8" autocomplete="new-password" required></label>` : ''}<button class="pri">${stage === 'form' ? 'Send reset code' : 'Reset password'}</button></form><a href="/sign-in">Back to sign in</a>` : ''}
+      ${screen === 'reset' ? `<form id="resetf" class="stack"><label>Email<input name="email" type="email" required autocomplete="email" value="${esc(email)}"></label>${stage !== 'form' ? `<label>Verification code<input name="code" inputmode="numeric" autocomplete="one-time-code" required></label><label>New password<input name="password" type="password" minlength="8" autocomplete="new-password" required></label><label>Confirm new password<input name="confirmPassword" type="password" minlength="8" autocomplete="new-password" required></label>` : ''}<button class="pri">${stage === 'form' ? 'Send reset code' : 'Reset password'}</button></form><a href="${L('/sign-in')}">Back to sign in</a>` : ''}
       ${screen === 'account' ? `<p>${esc(window.__youradsMe?.email || '')}</p><form id="passwordf" class="stack"><label>Current password<input name="current" type="password" autocomplete="current-password" required></label><label>New password<input name="next" type="password" minlength="8" autocomplete="new-password" required></label><button class="pri">Update password</button></form><button id="signout">Sign out</button>` : ''}
-      ${screen === 'callback' ? '<div class="callback-brand" aria-label="yourads">your<span>ads</span></div><div class="callback-icon" aria-hidden="true"><span class="callback-spinner"></span><svg class="callback-check" viewBox="0 0 24 24" fill="none"><path d="m5 12.5 4.5 4L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div><p class="callback-eyebrow">SECURE SIGN-IN</p><h2 id="callback-title">Taking you back to yourads</h2><p class="callback-message" id="callback-message" aria-live="polite">Confirming your Google account and setting up your session.</p><p class="callback-detail">This usually takes just a moment. You can keep this page open.</p><div class="callback-error" id="callback-error" role="alert" aria-live="assertive"></div><div class="callback-actions" id="callback-actions" hidden><button type="button" id="retry" class="pri">Try Google sign-in again</button><a href="/sign-in">Return to sign in</a></div>' : ''}
+      ${screen === 'callback' ? `<div class="callback-brand" aria-label="yourads">your<span>ads</span></div><div class="callback-icon" aria-hidden="true"><span class="callback-spinner"></span><svg class="callback-check" viewBox="0 0 24 24" fill="none"><path d="m5 12.5 4.5 4L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div><p class="callback-eyebrow">SECURE SIGN-IN</p><h2 id="callback-title">Taking you back to yourads</h2><p class="callback-message" id="callback-message" aria-live="polite">Confirming your Google account and setting up your session.</p><p class="callback-detail">This usually takes just a moment. You can keep this page open.</p><div class="callback-error" id="callback-error" role="alert" aria-live="assertive"></div><div class="callback-actions" id="callback-actions" hidden><button type="button" id="retry" class="pri">Try Google sign-in again</button><a href="${L('/sign-in')}">Return to sign in</a></div>` : ''}
       </div>`;
     if (screen === 'loading') return;
-    const google = $('#google', el); if (google) google.onclick = async () => { if (busy) return; if (mode === 'signup' && !$('#authf [name="terms"]', el)?.checked) { error('Please accept the Terms of Service and Privacy Policy to create an account.'); $('#authf [name="terms"]', el)?.focus(); return; } busy = true; authButton(google, true); try { await auth.google({ continueSignUp: mode === 'signup' }); } catch (x) { busy = false; authButton(google, false); error(x.message); } };
+    const google = $('#google', el); if (google) google.onclick = async () => { if (busy) return; if (mode === 'signup' && !$('#authf [name="terms"]', el)?.checked) { error(t('Please accept the Terms of Service and Privacy Policy to create an account.')); $('#authf [name="terms"]', el)?.focus(); return; } busy = true; authButton(google, true); try { await auth.google({ continueSignUp: mode === 'signup' }); } catch (x) { busy = false; authButton(google, false); error(x.message); } };
     const formEl = $('#authf', el); if (formEl) formEl.onsubmit = async e => {
       e.preventDefault(); if (busy) return;
       const values = Object.fromEntries(new FormData(formEl));
       if (mode === 'signup' && values.password !== values.confirmPassword) {
-        error('Passwords do not match.'); $('#authf [name="confirmPassword"]', el)?.focus(); return;
+        error(t('Passwords do not match.')); $('#authf [name="confirmPassword"]', el)?.focus(); return;
       }
       busy = true;
       const submit = formEl.querySelector('[type="submit"],button:not([type])'); authButton(submit, true);
@@ -543,21 +544,21 @@ function showAuth() {
       catch (x) { error(x.message); } finally { busy = false; authButton(submit, false); }
     };
     const verify = $('#verifyf', el); if (verify) verify.onsubmit = async e => { e.preventDefault(); if (busy) return; busy = true; const b = verify.querySelector('button[type="submit"],button:not([type])'); authButton(b, true); try { await auth.verifySignup(new FormData(verify).get('code')); await boot(); } catch (x) { error(x.message); } finally { busy = false; authButton(b, false); } };
-    const resend = $('#resend', el); if (resend) resend.onclick = async () => { if (busy) return; busy = true; authButton(resend, true); try { await auth.resendSignupCode(); error('A new verification code was sent.'); } catch (x) { error(x.message); } finally { busy = false; authButton(resend, false); resend.disabled = true; setTimeout(() => { if (resend.isConnected) resend.disabled = false; }, 30000); } };
+    const resend = $('#resend', el); if (resend) resend.onclick = async () => { if (busy) return; busy = true; authButton(resend, true); try { await auth.resendSignupCode(); error(t('A new verification code was sent.')); } catch (x) { error(x.message); } finally { busy = false; authButton(resend, false); resend.disabled = true; setTimeout(() => { if (resend.isConnected) resend.disabled = false; }, 30000); } };
     const device = $('#devicef', el); if (device) device.onsubmit = async e => { e.preventDefault(); if (busy) return; busy = true; const b = device.querySelector('button[type="submit"],button:not([type])'); authButton(b, true); try { await auth.verifyDeviceTrust(new FormData(device).get('code')); await boot(); } catch (x) { error(x.message); } finally { busy = false; authButton(b, false); } };
-    if (resend && mode === 'signin') resend.onclick = async () => { if (busy) return; busy = true; authButton(resend, true); try { await auth.resendDeviceTrustCode(); error('A new verification code was sent.'); } catch (x) { error(x.message); } finally { busy = false; authButton(resend, false); resend.disabled = true; setTimeout(() => { if (resend.isConnected) resend.disabled = false; }, 30000); } };
+    if (resend && mode === 'signin') resend.onclick = async () => { if (busy) return; busy = true; authButton(resend, true); try { await auth.resendDeviceTrustCode(); error(t('A new verification code was sent.')); } catch (x) { error(x.message); } finally { busy = false; authButton(resend, false); resend.disabled = true; setTimeout(() => { if (resend.isConnected) resend.disabled = false; }, 30000); } };
     const reset = $('#resetf', el); if (reset) reset.onsubmit = async e => {
       e.preventDefault(); if (busy) return;
       const v = Object.fromEntries(new FormData(reset));
       if (stage !== 'form' && v.password !== v.confirmPassword) {
-        error('Passwords do not match.'); $('#resetf [name="confirmPassword"]', el)?.focus(); return;
+        error(t('Passwords do not match.')); $('#resetf [name="confirmPassword"]', el)?.focus(); return;
       }
       busy = true; const b = reset.querySelector('button[type="submit"],button:not([type])'); authButton(b, true); email = v.email;
-      try { const result = await auth.resetPassword(v.email, v.code, v.password); if (result.needsCode) { render('reset', 'code'); error('If the account exists, a reset code has been sent.'); } else if (result.needsPassword) render('reset', 'password'); else if (result.complete) await boot(); }
+      try { const result = await auth.resetPassword(v.email, v.code, v.password); if (result.needsCode) { render('reset', 'code'); error(t('If the account exists, a reset code has been sent.')); } else if (result.needsPassword) render('reset', 'password'); else if (result.complete) await boot(); }
       catch (x) { error(x.message); } finally { busy = false; authButton(b, false); }
     };
-    const password = $('#passwordf', el); if (password) password.onsubmit = async e => { e.preventDefault(); if (busy) return; busy = true; const b = $('button', password); authButton(b, true); try { await auth.updatePassword(new FormData(password).get('current'), new FormData(password).get('next')); password.reset(); error('Password updated.'); } catch (x) { error(x.message); } finally { busy = false; authButton(b, false); } };
-    const signout = $('#signout', el); if (signout) signout.onclick = async () => { authButton(signout, true); try { await auth.signOut(); location.replace('/sign-in'); } catch (x) { authButton(signout, false); error(x.message); } };
+    const password = $('#passwordf', el); if (password) password.onsubmit = async e => { e.preventDefault(); if (busy) return; busy = true; const b = $('button', password); authButton(b, true); try { await auth.updatePassword(new FormData(password).get('current'), new FormData(password).get('next')); password.reset(); error(t('Password updated.')); } catch (x) { error(x.message); } finally { busy = false; authButton(b, false); } };
+    const signout = $('#signout', el); if (signout) signout.onclick = async () => { authButton(signout, true); try { await auth.signOut(); location.replace(L('/sign-in')); } catch (x) { authButton(signout, false); error(x.message); } };
   const retry = $('#retry', el); if (retry) retry.onclick = async () => { const card = $('.callback-card', el); card.dataset.state = 'loading'; card.setAttribute('aria-busy', 'true'); $('#callback-title', el).textContent = 'Taking you back to yourads'; $('#callback-message', el).textContent = 'Confirming your Google account and setting up your session.'; $('#callback-error', el).textContent = ''; $('#callback-actions', el).hidden = true; authButton(retry, true); try { await auth.google(); } catch (x) { card.dataset.state = 'error'; card.setAttribute('aria-busy', 'false'); $('#callback-title', el).textContent = 'We couldn’t finish sign-in'; $('#callback-message', el).textContent = 'Your Google account wasn’t connected to yourads.'; $('#callback-error', el).textContent = x.message || 'Please try again.'; $('#callback-actions', el).hidden = false; authButton(retry, false); } };
   };
   async function callback() {
@@ -573,14 +574,14 @@ function showAuth() {
     };
     try {
       await auth.completeGoogle();
-      if (await auth.token()) { location.replace('/'); return; }
+      if (await auth.token()) { location.replace(L('/')); return; }
       showFailure('Clerk returned without an active session. Please try again.');
     } catch (x) { showFailure(x.message || 'Google sign-in could not be completed. Please try again.'); }
   }
   if (mode === 'callback' || path === '/sso-callback') { mode = 'callback'; callback(); return; }
   if (mode === 'account') {
     render('loading');
-    (async () => { try { await auth.init(); if (!await auth.token()) return location.replace('/sign-in');
+    (async () => { try { await auth.init(); if (!await auth.token()) return location.replace(L('/sign-in'));
       window.__youradsMe = await api('/auth/me'); document.body.classList.remove('anon'); render('account');
     } catch (x) { render('account'); error(x.message); } })();
     return;
@@ -594,7 +595,7 @@ async function boot() {
   try { await auth.init(); if (!await auth.token()) return showAuth(); me = await api('/auth/me'); }
   catch (e) { showAuth(); return null; }
   window.__youradsMe = me;
-  if (location.pathname.startsWith('/sign-') || location.pathname === '/forgot-password') location.replace('/');
+  if (appPath.startsWith('/sign-') || appPath === '/forgot-password') location.replace(L('/'));
   document.body.classList.remove('anon');
   syncProfileIdentity(auth.clerk?.user, me);
   route();
@@ -606,7 +607,7 @@ async function enterAuthPage() {
   $('#view').innerHTML = '<div class="card authbox auth-route-checking" role="status" aria-live="polite" aria-busy="true"><span class="callback-spinner" aria-hidden="true"></span><h2>Checking your session</h2><p class="muted">Connecting securely…</p></div>';
   try {
     await auth.init();
-    if (auth.clerk?.session) { location.replace('/'); return; }
+    if (auth.clerk?.session) { location.replace(L('/')); return; }
   } catch { /* Keep the auth form available if Clerk cannot initialize. */ }
   showAuth();
 }
@@ -615,7 +616,7 @@ async function route() {
   const name = (location.hash.slice(1) || 'dashboard');
   document.querySelectorAll('nav a').forEach(a => a.classList.toggle('on', a.hash === '#' + name));
   const el = $('#view'); el.onclick = null; el.innerHTML = '<p class="muted">Loading…</p>';
-  try { await (views[name] || views.dashboard)(el); }
+  try { await (views[name] || views.dashboard)(el); el.querySelectorAll('select[name=language]').forEach(sel => { if ([...sel.options].some(o => o.value === lang)) sel.value = lang; }); }
   catch (x) { el.innerHTML = `<p class="toast">${esc(x.message)}</p>`; }
 }
 addEventListener('hashchange', () => { if (!document.body.classList.contains('anon')) route(); });
@@ -631,11 +632,11 @@ const profileButton = $('#profile-button'), profileMenu = $('#profile-menu');
 $('#profile-settings').onclick = () => { profileButton.setAttribute('aria-expanded', 'false'); profileMenu.hidden = true; };
 const navToggle = $('#nav-toggle'), primaryNav = $('#primary-nav'), navBackdrop = $('#nav-backdrop');
 const mobileNav = matchMedia('(max-width:700px)');
-function closeNav() { navToggle.setAttribute('aria-expanded', 'false'); navToggle.setAttribute('aria-label', 'Open navigation'); primaryNav.classList.remove('open'); primaryNav.inert = mobileNav.matches; navBackdrop.hidden = true; }
+function closeNav() { navToggle.setAttribute('aria-expanded', 'false'); navToggle.setAttribute('aria-label', t('Open navigation')); primaryNav.classList.remove('open'); primaryNav.inert = mobileNav.matches; navBackdrop.hidden = true; }
 navToggle.onclick = () => {
   const open = navToggle.getAttribute('aria-expanded') !== 'true';
   navToggle.setAttribute('aria-expanded', String(open));
-  navToggle.setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
+  navToggle.setAttribute('aria-label', open ? t('Close navigation') : t('Open navigation'));
   primaryNav.classList.toggle('open', open);
   primaryNav.inert = !open;
   navBackdrop.hidden = !open;
@@ -658,7 +659,8 @@ document.addEventListener('click', e => {
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') { profileButton.setAttribute('aria-expanded', 'false'); profileMenu.hidden = true; closeNav(); profileButton.focus(); }
 });
-$('#logout').onclick = async e => { authButton(e.currentTarget, true); try { await auth.signOut(); location.replace('/sign-in'); } catch (x) { authButton(e.currentTarget, false); alert(x.message || 'Could not sign out. Please try again.'); } };
-if (['/sign-in', '/sign-up', '/forgot-password'].includes(location.pathname)) enterAuthPage();
-else if (location.pathname !== '/') showAuth();
+$('#logout').onclick = async e => { authButton(e.currentTarget, true); try { await auth.signOut(); location.replace(L('/sign-in')); } catch (x) { authButton(e.currentTarget, false); alert(t(x.message || 'Could not sign out. Please try again.')); } };
+startI18n();
+if (['/sign-in', '/sign-up', '/forgot-password'].includes(appPath)) enterAuthPage();
+else if (appPath !== '/') showAuth();
 else boot().catch(showAuth);

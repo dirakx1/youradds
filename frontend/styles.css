@@ -52,3 +52,5 @@ a{color:var(--acc)}code{word-break:break-all}.conn button{margin-right:6px}
 @media(max-width:480px){.callback-card{padding:26px 20px}.callback-brand{margin-bottom:24px}.callback-card h2{font-size:21px}}
 @media(prefers-reduced-motion:reduce){.callback-spinner{animation:none;border-top-color:var(--acc);border-right-color:var(--acc)}}
 .auth-route-checking{display:grid;justify-items:center;text-align:center;padding:30px}.auth-route-checking .callback-spinner{display:block;margin:2px 0 16px}.auth-route-checking h2{margin:0 0 5px;font-size:18px}.auth-route-checking p{margin:0}
+
+.site-footer{flex-wrap:wrap}.site-footer .lang-switch{gap:10px}.site-footer .lang-switch a+a::before{content:'|';margin-right:10px;color:var(--line)}.site-footer .lang-switch a[aria-current]{color:var(--tx);font-weight:600}

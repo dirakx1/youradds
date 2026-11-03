@@ -118,16 +118,16 @@ test('Google OAuth enables Clerk sign-up transfer and calls the public redirect 
   };
   await auth.google();
   assert.deepEqual(redirectParams, {
-    strategy: 'oauth_google', redirectUrl: '/sso-callback', redirectUrlComplete: '/', continueSignUp: true,
+    strategy: 'oauth_google', redirectUrl: '/en/sso-callback', redirectUrlComplete: '/en/', continueSignUp: true,
   });
   await auth.completeGoogle();
   assert.equal(callbackReached, true);
   assert.equal(callbackNavigationOverride, undefined);
   assert.equal(await auth.token(), 'google-session');
   assert.deepEqual(callbackParams, {
-    signInUrl: '/sign-in', signUpUrl: '/sign-up',
-    signInFallbackRedirectUrl: '/', signUpFallbackRedirectUrl: '/',
-    signInForceRedirectUrl: '/', signUpForceRedirectUrl: '/',
+    signInUrl: '/en/sign-in', signUpUrl: '/en/sign-up',
+    signInFallbackRedirectUrl: '/en/', signUpFallbackRedirectUrl: '/en/',
+    signInForceRedirectUrl: '/en/', signUpForceRedirectUrl: '/en/',
   });
   assert.equal(scripts(), 1);
 });

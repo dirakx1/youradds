@@ -41,6 +41,22 @@ database role. See [the database migration runbook](backend/docs/database-migrat
 - Operator settings live in `backend/.env` (see `.env.example`): `ALLOW_SIGNUP`, `YOURADS_SECRET_KEY` (back it up),
   `SHARED_HIGGSFIELD`. The Anthropic key is server-wide, so AI copy/chat/WhatsApp-agent usage is billed to the operator.
 
+## Languages (English / Spanish)
+
+Every page lives under a language prefix: `/en/...` is English, `/es/...` is Spanish (app: `/es/#studio`, auth:
+`/es/sign-in`, `/es/sso-callback`, static pages: `/es/about/`, `/es/contact/`, `/es/privacy/`, `/es/terms/`).
+Old un-prefixed URLs (`/`, `/sign-in`, `/about/` ...) redirect (302, query string kept) to the visitor's language: the
+`lang` cookie set by the footer switcher, else the browser's `Accept-Language`, else English (`backend/app/pages.py`).
+
+- Static pages are one HTML file per language (`frontend/en/<page>/`, `frontend/es/<page>/`); edit both together.
+- The app is written in English. `frontend/i18n.js` holds the Spanish dictionary (exact-text keys): on `/es/` it
+  translates everything the app renders, and `t('Text {name}', {name})` is used for alerts/confirms/built strings.
+  A string without an entry just stays English, so add the Spanish entry whenever you add UI text.
+  `frontend/tests/i18n.test.mjs` checks that placeholders match between each key and its translation.
+- Clerk redirect/sign-in URLs are language-prefixed (`/es/sso-callback`); the Clerk instance only needs the site
+  origin allowed, not individual paths.
+- Not translated: provider/Clerk error messages and AI replies (ad copy follows the Language dropdown instead).
+
 ## Creative Studio
 Tab **Creatives**: generates image ads for Meta (1080×1080, 1080×1350, 9:16 Story/Reel), TikTok (9:16) and Google
 Display (1200×628, 1200×1200, 300×250) from a product name + optional product photo. Each platform gets its own

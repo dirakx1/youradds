@@ -1,3 +1,5 @@
+import { L, appPath } from './i18n.js?v=i18n-1';
+
 const SDK_VERSION = '6.40.1';
 let initPromise;
 let clerk;
@@ -34,14 +36,14 @@ async function init() {
       });
     }
     clerk = typeof window.Clerk === 'function' ? new window.Clerk(config.publishableKey) : window.Clerk;
-    await clerk.load({ signInUrl: '/sign-in', signUpUrl: '/sign-up', afterSignOutUrl: '/sign-in' });
+    await clerk.load({ signInUrl: L('/sign-in'), signUpUrl: L('/sign-up'), afterSignOutUrl: L('/sign-in') });
     let hadSession = Boolean(clerk.session);
     clerk.addListener?.(state => {
       const hasSession = Boolean(state.session);
       if (hadSession && !hasSession) {
         window.__youradsMe = null;
         window.dispatchEvent(new Event('yourads:signed-out'));
-        if (!signingOut && !['/sign-in', '/sign-up', '/forgot-password'].includes(location.pathname)) location.replace('/sign-in');
+        if (!signingOut && !['/sign-in', '/sign-up', '/forgot-password'].includes(appPath)) location.replace(L('/sign-in'));
       }
       hadSession = hasSession;
     });
@@ -138,7 +140,7 @@ async function resetPassword(email, code, password) {
 async function google({ continueSignUp = true } = {}) {
   const c = await init();
   await c.client.signIn.authenticateWithRedirect({
-    strategy: 'oauth_google', redirectUrl: '/sso-callback', redirectUrlComplete: '/',
+    strategy: 'oauth_google', redirectUrl: L('/sso-callback'), redirectUrlComplete: L('/'),
     continueSignUp,
   });
 }
@@ -146,9 +148,9 @@ async function google({ continueSignUp = true } = {}) {
 async function completeGoogle() {
   const c = await init();
   return c.handleRedirectCallback({
-    signInUrl: '/sign-in', signUpUrl: '/sign-up',
-    signInFallbackRedirectUrl: '/', signUpFallbackRedirectUrl: '/',
-    signInForceRedirectUrl: '/', signUpForceRedirectUrl: '/',
+    signInUrl: L('/sign-in'), signUpUrl: L('/sign-up'),
+    signInFallbackRedirectUrl: L('/'), signUpFallbackRedirectUrl: L('/'),
+    signInForceRedirectUrl: L('/'), signUpForceRedirectUrl: L('/'),
   });
 }
 
