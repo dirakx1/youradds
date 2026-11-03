@@ -75,6 +75,7 @@ class CopyIn(BaseModel):
     audience: str = "everyone"
     tone: str = "friendly"
     n: int = Field(4, ge=1, le=8)
+    language: str = "en"
 
 
 class ApplyIn(BaseModel):
@@ -241,7 +242,10 @@ def clear_demo(user: dict = Depends(current_user)):
 
 @app.post("/api/ai/copy")
 def ai_copy(body: CopyIn, user: dict = Depends(current_user)):
-    return {"variants": ai.generate_copy(body.platform, body.product, body.audience, body.tone, body.n),
+    if body.language not in creatives.LANGS:
+        raise HTTPException(400, "unsupported language")
+    return {"variants": ai.generate_copy(body.platform, body.product, body.audience, body.tone, body.n,
+                                         creatives.LANGS[body.language], body.language),
             "llm": ai.llm_available()}
 
 

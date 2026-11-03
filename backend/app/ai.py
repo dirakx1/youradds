@@ -18,27 +18,54 @@ def _ask(system: str, user: str, max_tokens: int = 1500) -> str:
     return "".join(b.text for b in msg.content if b.type == "text")
 
 
-def generate_copy(platform: str, product: str, audience: str, tone: str, n: int = 4) -> list[dict]:
+# Template-mode copy per language: (angle, headline, body, cta); {p} = product, {a} = audience.
+TEMPLATES = {
+    "en": [("benefit", "{p}: Made for You", "Finally, {p} that fits {a}. See why people switch.", "Learn More"),
+           ("urgency", "Last Chance: {p}", "Today only - get {p} before it's gone.", "Shop Now"),
+           ("social proof", "Join Thousands Using {p}", "Rated 4.8/5 by {a}. Find out why.", "Get Started"),
+           ("curiosity", "The {p} Secret", "What {a} already know about {p}.", "See How")],
+    "es": [("beneficio", "{p}: Hecho para ti", "Por fin, {p} pensado para {a}. Descubre por qué todos cambian.", "Más info"),
+           ("urgencia", "Última oportunidad: {p}", "Solo hoy: consigue {p} antes de que se agote.", "Compra ya"),
+           ("prueba social", "Únete a quienes usan {p}", "Valorado 4,8/5 por {a}. Descubre por qué.", "Empieza ya"),
+           ("curiosidad", "El secreto de {p}", "Lo que {a} ya saben sobre {p}.", "Descúbrelo")],
+    "pt": [("benefício", "{p}: Feito para você", "Finalmente, {p} pensado para {a}. Veja por que todos trocam.", "Saiba mais"),
+           ("urgência", "Última chance: {p}", "Só hoje: garanta {p} antes que acabe.", "Compre agora"),
+           ("prova social", "Junte-se a quem usa {p}", "Avaliado 4,8/5 por {a}. Descubra por quê.", "Comece agora"),
+           ("curiosidade", "O segredo de {p}", "O que {a} já sabem sobre {p}.", "Veja como")],
+    "fr": [("bénéfice", "{p} : fait pour vous", "Enfin, {p} pensé pour {a}. Voyez pourquoi on change.", "En savoir plus"),
+           ("urgence", "Dernière chance : {p}", "Aujourd'hui seulement : profitez de {p} avant qu'il ne soit trop tard.", "Acheter"),
+           ("preuve sociale", "Rejoignez ceux qui utilisent {p}", "Noté 4,8/5 par {a}. Découvrez pourquoi.", "Commencer"),
+           ("curiosité", "Le secret de {p}", "Ce que {a} savent déjà sur {p}.", "Découvrir")],
+    "de": [("Nutzen", "{p}: Für dich gemacht", "Endlich {p}, das zu {a} passt. Sieh, warum alle wechseln.", "Mehr erfahren"),
+           ("Dringlichkeit", "Letzte Chance: {p}", "Nur heute: Sichere dir {p}, bevor es weg ist.", "Jetzt kaufen"),
+           ("Social Proof", "Schließ dich {p}-Nutzern an", "Mit 4,8/5 bewertet von {a}. Finde heraus, warum.", "Loslegen"),
+           ("Neugier", "Das Geheimnis von {p}", "Was {a} bereits über {p} wissen.", "So geht's")],
+    "it": [("beneficio", "{p}: Fatto per te", "Finalmente {p} pensato per {a}. Scopri perché tutti cambiano.", "Scopri di più"),
+           ("urgenza", "Ultima occasione: {p}", "Solo oggi: prendi {p} prima che finisca.", "Acquista ora"),
+           ("riprova sociale", "Unisciti a chi usa {p}", "Valutato 4,8/5 da {a}. Scopri perché.", "Inizia ora"),
+           ("curiosità", "Il segreto di {p}", "Quello che {a} sanno già su {p}.", "Scopri come")],
+}
+
+
+def generate_copy(platform: str, product: str, audience: str, tone: str, n: int = 4,
+                  language: str = "English", lang_code: str = "en") -> list[dict]:
     h_lim, b_lim = LIMITS[platform]
     if llm_available():
         try:
             out = _ask(
-                "You are an expert performance-marketing copywriter. Reply with ONLY a JSON array.",
-                f"Write {n} {platform} ad variants for: {product}\nAudience: {audience}\nTone: {tone}\n"
+                "You are an expert performance-marketing copywriter. Reply with ONLY a JSON array. "
+                f"Write all copy (headline, body, cta, angle) in {language}.",
+                f"Write {n} {platform} ad variants in {language} for: {product}\nAudience: {audience}\nTone: {tone}\n"
                 f"Each item: {{\"headline\" (<= {h_lim} chars), \"body\" (<= {b_lim} chars), \"cta\", \"angle\"}}. "
                 "Use a different angle in each (benefit, urgency, social proof, curiosity...).")
             data = json.loads(re.search(r"\[.*\]", out, re.S).group(0))
             return [{**v, "headline": v["headline"][:h_lim], "body": v["body"][:b_lim]} for v in data][:n]
         except Exception:
             pass  # fall through to templates
-    angles = [
-        ("benefit", f"{product}: Made for You", f"Finally, {product.lower()} that fits {audience.lower()}. See why people switch.", "Learn More"),
-        ("urgency", f"Last Chance: {product}", f"Today only - get {product.lower()} before it's gone.", "Shop Now"),
-        ("social proof", f"Join Thousands Using {product}", f"Rated 4.8/5 by {audience.lower()}. Find out why.", "Get Started"),
-        ("curiosity", f"The {product} Secret", f"What {audience.lower()} already know about {product.lower()}.", "See How"),
-    ]
-    return [{"headline": h[:h_lim], "body": b[:b_lim], "cta": cta, "angle": a, "tone": tone}
-            for a, h, b, cta in angles[:n]]
+    angles = TEMPLATES.get(lang_code, TEMPLATES["en"])
+    p, a = product, audience.lower()
+    return [{"headline": h.format(p=p, a=a)[:h_lim], "body": b.format(p=p, a=a)[:b_lim], "cta": cta, "angle": an, "tone": tone}
+            for an, h, b, cta in angles[:n]]
 
 
 def kpis(m: dict) -> dict:

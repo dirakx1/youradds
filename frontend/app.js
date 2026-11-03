@@ -113,12 +113,14 @@ const views = {
   },
 
   async studio(el) {
+    const { languages } = await api('/creatives/options');
     el.innerHTML = `<h2>AI Studio <span class="muted">· ad copy generator</span></h2>
       <div class="card"><form class="row" id="f">
         <label>Platform<select name="platform"><option value="meta">Meta<option value="tiktok">TikTok<option value="google">Google</select></label>
         <label>Product<input name="product" required placeholder="Organic running shoes"></label>
         <label>Audience<input name="audience" value="runners 25-45"></label>
         <label>Tone<select name="tone"><option>friendly<option>bold<option>professional<option>playful<option>urgent</select></label>
+        <label>Language<select name="language">${Object.entries(languages).map(([k, v]) => `<option value="${k}">${v}`).join('')}</select></label>
         <button class="pri">Generate</button></form></div><div id="out"></div>`;
     $('#f').onsubmit = async e => {
       e.preventDefault(); const btn = $('button', e.target); btn.disabled = true;
