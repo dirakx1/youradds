@@ -14,7 +14,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 8px;text-align:left;
 th{color:var(--mut);font-weight:500;font-size:12px}.scroll{overflow-x:auto}
 .pill{display:inline-block;padding:1px 9px;border-radius:99px;font-size:12px;color:#fff}
 .pill.meta{background:var(--meta)}.pill.tiktok{background:var(--tiktok)}.pill.google{background:#ea4335}
-.st-active{color:var(--ok)}.st-paused{color:var(--mut)}
+.st-active{color:var(--ok)}.st-warn{color:#d89614}.conn-status{font-size:13px;font-weight:500}.statusdetail:empty{display:none}.st-paused{color:var(--mut)}
 button,input,select,textarea{font:inherit;color:var(--tx);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 11px}
 button{cursor:pointer}button.pri{background:var(--acc);border-color:var(--acc);color:#fff}button:disabled{opacity:.5}
 button.is-loading{position:relative;cursor:wait;color:transparent!important}button.is-loading>*{visibility:hidden}button.is-loading::after{content:"";position:absolute;inset:50% auto auto 50%;width:18px;height:18px;margin:-10px 0 0 -10px;border:2px solid #4a4a4a;border-right-color:transparent;border-radius:50%;animation:auth-spin .7s linear infinite}button.pri.is-loading::after{border-color:#fff;border-right-color:transparent}

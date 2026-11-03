@@ -337,8 +337,8 @@ const views = {
     const hint = { meta: 'Also used for Instagram placements.', whatsapp: 'In Meta\'s WhatsApp webhook settings, set the callback URL and verify token shown below, and subscribe to "messages".' };
     el.innerHTML = `<h2>Connections</h2>
       <p class="muted">These credentials belong to <b>your account only</b>. They are stored encrypted and never shown again after saving - leave a secret blank to keep it.</p>
-      ${cs.map(c => `<form class="card conn" data-s="${c.service}">
-        <h3 style="margin-top:0">${esc(c.title)} ${c.connected ? '<span class="st-active">● connected' + (c.shared ? ' (server key)' : '') + '</span>' : '<span class="muted">● not connected</span>'}</h3>
+      ${cs.map(c => `<form class="card conn" data-s="${c.service}"${c.connected ? ' data-has="1"' : ''}>
+        <h3 style="margin-top:0">${esc(c.title)} <span class="conn-status muted" data-status>${c.connected ? '● checking…' : '● not connected'}</span></h3>
         ${hint[c.service] ? `<p class="muted">${hint[c.service]}</p>` : ''}
         ${c.webhook_path ? `<p>Callback URL: <code>${esc(location.origin + c.webhook_path)}</code></p>` : ''}
         <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">${c.fields.map(f => `<label>${esc(f.label)}${f.required ? ' *' : ''}
@@ -347,7 +347,25 @@ const views = {
         <button class="pri" type="submit">Save</button>
         ${['meta', 'tiktok', 'google'].includes(c.service) && c.connected ? `<button type="button" data-import="${c.service}">Test &amp; import campaigns</button>` : ''}
         ${c.connected && !c.shared ? '<button type="button" data-clear>Disconnect</button>' : ''}
-        <span class="muted msgline"></span></form>`).join('')}`;
+        <button type="button" data-recheck>Re-check</button>
+        <span class="muted msgline"></span><p class="toast statusdetail"></p></form>`).join('')}`;
+    const STATES = {
+      ok: ['st-active', '● connected'], invalid: ['toast', '● credentials rejected'], no_balance: ['st-warn', '● connected, no balance'],
+      error: ['st-warn', '● could not verify'], server_key: ['st-warn', '● server key set, sharing off'], not_connected: ['muted', '● not connected'] };
+    const loadStatus = async force => {
+      el.querySelectorAll('[data-status]').forEach(b => { if (b.closest('form').dataset.has) { b.className = 'conn-status muted'; b.textContent = '● checking…'; } });
+      let st = {};
+      try { st = await api('/connections/status' + (force ? '?force=true' : '')); } catch { }
+      el.querySelectorAll('form.conn').forEach(f => {
+        const r = st[f.dataset.s], b = $('[data-status]', f);
+        if (!r) { if (f.dataset.has) { b.className = 'conn-status st-warn'; b.textContent = '● could not verify'; } return; }
+        const [cls, txt] = STATES[r.state] || STATES.error;
+        b.className = 'conn-status ' + cls;
+        b.textContent = txt + (r.source === 'shared' ? ' (server key)' : '');
+        b.title = r.detail || '';
+        const d = $('.statusdetail', f); if (d) d.textContent = ['invalid', 'no_balance', 'error', 'server_key'].includes(r.state) ? r.detail : '';
+      });
+    };
     el.querySelectorAll('form.conn').forEach(f => {
       const svc = f.dataset.s, note = $('.msgline', f);
       f.onsubmit = async e => {
@@ -357,6 +375,7 @@ const views = {
         catch (x) { note.textContent = x.message; note.className = 'toast msgline'; }
       };
       const imp = $('[data-import]', f), clr = $('[data-clear]', f);
+      $('[data-recheck]', f).onclick = () => loadStatus(true);
       if (imp) imp.onclick = async () => {
         note.className = 'muted msgline'; note.textContent = 'Contacting ' + svc + '…';
         try { const r = await api(`/connections/${svc}/import`, { method: 'POST' }); note.textContent = `Connection works. Imported ${r.imported} new campaign(s).`; }
@@ -364,6 +383,7 @@ const views = {
       };
       if (clr) clr.onclick = async () => { if (confirm('Remove the saved ' + svc + ' credentials?')) { await api('/connections/' + svc, { method: 'DELETE' }); views.connections(el); } };
     });
+    loadStatus(false);
   },
 
   async profile(el) {

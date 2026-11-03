@@ -126,6 +126,25 @@ def _describe(user: dict, service: str) -> dict:
     return out
 
 
+@router.get("/status")
+def connection_status(force: bool = False, user: dict = Depends(current_user)):
+    """Live health of every connection (probes run in parallel). Never exposes secrets."""
+    from concurrent.futures import ThreadPoolExecutor
+    from . import health
+
+    def one(service):
+        if connected(user["id"], service):
+            return service, {**health.check(service, get(user["id"], service), force), "source": "own"}
+        if service == "higgsfield" and higgsfield_key(user["id"]):
+            return service, {**health.check(service, {"api_key": higgsfield_key(user["id"])}, force), "source": "shared"}
+        if service == "higgsfield" and env("HIGGSFIELD_API_KEY"):
+            return service, {"state": "server_key", "detail": "Server key is configured but sharing is off", "source": "server"}
+        return service, {"state": "not_connected", "detail": "", "source": None}
+
+    with ThreadPoolExecutor(max_workers=len(SERVICES)) as pool:
+        return dict(pool.map(one, SERVICES))
+
+
 @router.get("")
 def list_connections(user: dict = Depends(current_user)):
     return [_describe(user, s) for s in SERVICES]
