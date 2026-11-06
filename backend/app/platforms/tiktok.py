@@ -1,7 +1,13 @@
 import httpx
+from ..config import env
 from .base import AdPlatform
 
 API = "https://business-api.tiktok.com/open_api/v1.3"
+
+
+def base_url() -> str:
+    """TIKTOK_API_URL points the connector at a local fake or sandbox (see backend/devtools/)."""
+    return (env("TIKTOK_API_URL") or API).rstrip("/")
 OBJECTIVES = {"sales": "WEB_CONVERSIONS", "traffic": "TRAFFIC", "leads": "LEAD_GENERATION",
               "awareness": "REACH", "whatsapp": "TRAFFIC"}
 
@@ -13,7 +19,7 @@ class TikTok(AdPlatform):
         return bool(self.c.get("access_token") and self.c.get("advertiser_id"))
 
     def _call(self, method, path, **kw):
-        r = httpx.request(method, f"{API}/{path}", headers={"Access-Token": self.c["access_token"]},
+        r = httpx.request(method, f"{base_url()}/{path}", headers={"Access-Token": self.c["access_token"]},
                           timeout=30, **kw)
         r.raise_for_status()
         body = r.json()

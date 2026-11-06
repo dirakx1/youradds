@@ -28,7 +28,7 @@ class ConnectionHealthTests(_m.ApiDatabaseTests):
     def test_meta_invalid_and_unreachable(self):
         import httpx
         self.client.put("/api/connections/meta", json={"values": {"access_token": "tok", "ad_account_id": "1"}})
-        with patch("app.health.httpx.get", return_value=_resp(400, {"error": {"message": "Invalid OAuth access token"}})):
+        with patch("app.health.httpx.get", return_value=_resp(400, {"error": {"message": "Invalid OAuth access token", "code": 190}})):
             self.assertEqual(self.client.get("/api/connections/status?force=true").json()["meta"]["state"], "invalid")
         with patch("app.health.httpx.get", side_effect=httpx.ConnectError("x")):
             self.assertEqual(self.client.get("/api/connections/status?force=true").json()["meta"]["state"], "error")

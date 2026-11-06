@@ -1,7 +1,13 @@
 import httpx
+from ..config import env
 from .base import AdPlatform
 
 API = "https://googleads.googleapis.com/v18"
+
+
+def base_url() -> str:
+    """GOOGLE_ADS_API_URL points the connector at a local fake or test account (see backend/devtools/)."""
+    return (env("GOOGLE_ADS_API_URL") or API).rstrip("/")
 
 
 class Google(AdPlatform):
@@ -20,7 +26,7 @@ class Google(AdPlatform):
              "developer-token": self.c["developer_token"]}
         if self.c.get("login_customer_id"):
             h["login-customer-id"] = self.c["login_customer_id"].replace("-", "")
-        r = httpx.post(f"{API}/customers/{self._cid}/{path}", headers=h, json=body, timeout=30)
+        r = httpx.post(f"{base_url()}/customers/{self._cid}/{path}", headers=h, json=body, timeout=30)
         r.raise_for_status()
         return r.json()
 

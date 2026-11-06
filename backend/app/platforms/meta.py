@@ -1,7 +1,13 @@
 import httpx
+from ..config import env
 from .base import AdPlatform
 
 GRAPH = "https://graph.facebook.com/v21.0"
+
+
+def base_url() -> str:
+    """META_GRAPH_URL points the connector at a local fake or sandbox (see backend/devtools/)."""
+    return (env("META_GRAPH_URL") or GRAPH).rstrip("/")
 OBJECTIVES = {"sales": "OUTCOME_SALES", "traffic": "OUTCOME_TRAFFIC", "leads": "OUTCOME_LEADS",
               "awareness": "OUTCOME_AWARENESS", "whatsapp": "OUTCOME_ENGAGEMENT"}
 
@@ -19,7 +25,7 @@ class Meta(AdPlatform):
 
     def _call(self, method, path, **data):
         data["access_token"] = self.c["access_token"]
-        r = httpx.request(method, f"{GRAPH}/{path}", data=data if method == "POST" else None,
+        r = httpx.request(method, f"{base_url()}/{path}", data=data if method == "POST" else None,
                           params=data if method == "GET" else None, timeout=30)
         r.raise_for_status()
         return r.json()

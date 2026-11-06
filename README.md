@@ -27,6 +27,32 @@ database role. See [the database migration runbook](backend/docs/database-migrat
 [EC2 + Nginx deployment guide](backend/docs/ec2-nginx-deployment.md). The current server state is recorded in the
 [EC2 operations record](backend/docs/ec2-server-operations.md).
 
+## Testing the ad-platform integrations (Meta / TikTok / Google)
+
+Three layers, from fastest to most realistic. The connectors in `backend/app/platforms/` are the same code in all three.
+
+1. **Local fake APIs (no accounts, no network).** `backend/devtools/fake_ads.py` imitates the Meta Graph, TikTok Business
+   and Google Ads REST calls yourads makes (create / list / pause / budget + the credential probes), keeps state, and
+   rejects malformed requests the way the real APIs do. Automated contract tests use it:
+   `cd backend && python -m unittest tests.test_ad_platforms`.
+2. **Click through the real app against the fake.** In one terminal `python -m devtools.fake_ads --port 9100` (it prints
+   three `..._URL` variables); in another, export them and start the app (`META_GRAPH_URL=... TIKTOK_API_URL=...
+   GOOGLE_ADS_API_URL=... ./run-local.sh`). On the Connections page enter any token (`test-token`), a Meta account
+   such as `123`, a TikTok advertiser `7000`, a 10-digit Google customer id and any developer token. Then Create campaign,
+   Pause, Optimizer "Apply" and "Test & import" all hit the fake (state at `http://127.0.0.1:9100/__state`). Tokens
+   containing `EXPIRED`, `NOPERM` or `RATELIMIT` simulate those failures, so the red/amber badges can be tried.
+3. **Real sandbox / test accounts (the only proof the upstream APIs still accept our requests).**
+   `python -m devtools.smoke_ads --platform meta` runs a read-only credential probe + campaign list against the real API
+   using `META_ACCESS_TOKEN`/`META_AD_ACCOUNT_ID` (TikTok: `TIKTOK_ACCESS_TOKEN`/`TIKTOK_ADVERTISER_ID`; Google:
+   `GOOGLE_ADS_ACCESS_TOKEN`/`GOOGLE_ADS_DEVELOPER_TOKEN`/`GOOGLE_ADS_CUSTOMER_ID`). Add `--write` to also create one
+   PAUSED campaign and change its budget (asks first; it can't spend and is never activated; delete it in the platform
+   UI afterwards). Use a Meta test ad account, a TikTok sandbox advertiser and a Google Ads test account. Re-run this
+   whenever you change `platforms/*.py` or bump an API version (`GRAPH`/`API` constants).
+   `python -m devtools.smoke_ads --fake --write` runs the same script against the fake.
+
+The fake proves our requests are well-formed and our parsing is right; it cannot know about upstream changes (API
+versions, new required fields, policy rules). Treat layer 3 as the release check.
+
 ## Accounts (multi-user)
 
 - Sign up / log in with email + password or Google through Clerk. The backend verifies Clerk session tokens.
