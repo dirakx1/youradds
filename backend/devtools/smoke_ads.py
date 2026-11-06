@@ -13,7 +13,7 @@ Credentials come from the environment or backend/.env (use sandbox / test accoun
 Safety: without --write nothing is created. With --write on a real account the script asks for confirmation (or
 --yes), creates ONE campaign in PAUSED state named "yourads-smoke-<timestamp>" (no ad set, so it cannot serve or
 spend), and never activates it. The connectors have no delete call, so remove that campaign in the platform UI.
-Exit status is non-zero if any step fails.
+Exit status: 0 all passed, 1 a step failed, 2 nothing was tested (all skipped).
 """
 import argparse
 import os
@@ -131,6 +131,10 @@ def main():
                         skipped += 1
                         continue
             failures += not run_platform(platform, creds, args.write, args.fake)
+        tested = len(platforms) - skipped
+        if not tested:
+            print("\nNOTHING TESTED - every platform was skipped (missing credentials or declined confirmation)")
+            return 2
         print(f"\n{'ALL PASSED' if not failures else f'{failures} PLATFORM(S) FAILED'}"
               + (f"  ({skipped} skipped)" if skipped else ""))
         return 1 if failures else 0
