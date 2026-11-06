@@ -54,3 +54,54 @@ a{color:var(--acc)}code{word-break:break-all}.conn button{margin-right:6px}
 .auth-route-checking{display:grid;justify-items:center;text-align:center;padding:30px}.auth-route-checking .callback-spinner{display:block;margin:2px 0 16px}.auth-route-checking h2{margin:0 0 5px;font-size:18px}.auth-route-checking p{margin:0}
 
 .site-footer{flex-wrap:wrap}.site-footer .lang-switch{gap:10px}.site-footer .lang-switch a+a::before{content:'|';margin-right:10px;color:var(--line)}.site-footer .lang-switch a[aria-current]{color:var(--tx);font-weight:600}
+
+.wa-grid{grid-template-columns:1fr 1.4fr;align-items:start}
+.nav-toggle{position:relative;z-index:26}
+select,input,textarea{max-width:100%;min-width:0}
+.grid>*,.row>*{min-width:0}
+
+/* ---- phones ---- */
+@media(max-width:700px){
+  html{-webkit-text-size-adjust:100%}
+  aside{padding-top:calc(12px + env(safe-area-inset-top))}
+  .site-footer{padding-bottom:calc(14px + env(safe-area-inset-bottom))}
+  .site-footer nav{gap:2px 6px;flex-wrap:wrap}
+  .site-footer nav a{padding:11px 8px}
+  /* 16px text stops iOS Safari zooming the page when a field is focused; 44px is the minimum comfortable touch target */
+  input:not([type=checkbox]):not([type=radio]):not([type=file]),select,textarea{font-size:16px;min-height:44px}
+  textarea{min-height:96px}
+  button,.profile-file-button{min-height:44px}
+  button:not(.nav-toggle):not(.profile-button):not(.pri):not([hidden]){min-width:44px}
+  input[type=checkbox],input[type=radio]{width:22px!important;height:22px;margin:0 6px 0 0;vertical-align:middle}
+  fieldset label{padding:8px 0}
+  label{font-size:13px}
+  .card{padding:14px}
+  .authbox{padding-left:18px;padding-right:18px}
+  .terms-consent a,.forgot-password,.card p a,.card>a,.authbox>a{display:inline-block;padding:11px 0}
+  .wa-grid{grid-template-columns:minmax(0,1fr)}
+  svg text{font-size:21px}   /* the chart is drawn at 700 units wide and scaled down to the screen: keep its labels legible */
+  .msg{max-width:90%}
+  #chatbox [data-h],#chatbox [data-won]{margin-bottom:6px}
+  #reply{grid-template-columns:minmax(0,1fr) auto!important}
+  /* tables become one card per row: label on the left, value on the right (no sideways swiping) */
+  table.rtable,table.rtable tbody,table.rtable tr,table.rtable td{display:block;width:100%}
+  table.rtable thead{display:none}
+  table.rtable tr{padding:10px 0;border-bottom:1px solid var(--line)}
+  table.rtable tr:last-child{border-bottom:0}
+  table.rtable td{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:5px 2px;border:0;white-space:normal;text-align:right;overflow-wrap:anywhere}
+  table.rtable td::before{content:attr(data-label);flex:none;color:var(--mut);font-size:12px;text-align:left}
+  table.rtable td:first-child{display:block;font-weight:600;text-align:left}
+  table.rtable td:first-child::before,table.rtable td[data-label=""]::before{content:none}
+  table.rtable td[data-label=""]{justify-content:flex-start;gap:8px;padding-top:8px}
+  table.rtable td[colspan]{display:block;text-align:left}
+}
+/* closed drawer: no shadow bleeding onto the page edge, and hidden from assistive tech once the slide-out finishes */
+@media(max-width:700px){
+  #primary-nav:not(.open){box-shadow:none;visibility:hidden;transition:transform .22s ease,visibility 0s linear .22s}
+  #primary-nav.open{visibility:visible;transition:transform .22s ease}
+}
+@media(max-width:360px){
+  main{padding:12px}
+  h2{font-size:20px}
+  .kpi b{font-size:19px}
+}

@@ -75,8 +75,8 @@ const views = {
       <div class="grid">${kpi('Spend', money(tot.spend))}${kpi('Revenue', money(tot.revenue))}${kpi('ROAS', tot.roas.toFixed(2) + 'x')}
       ${kpi('Conversions', tot.conversions)}${kpi('CTR', tot.ctr.toFixed(2) + '%')}${kpi('CPA', tot.cpa ? money(tot.cpa) : '–')}</div>
       <div class="card">${lineChart(d.daily, ['spend', 'revenue'], ['#e74c3c', '#2ecc71'])}</div>
-      <div class="card scroll"><table><tr><th>Platform<th>Spend<th>Revenue<th>ROAS<th>Conversions<th>Clicks</tr>
-      ${d.by_platform.map(p => `<tr><td>${pill(p.platform)}<td>${money(p.spend)}<td>${money(p.revenue)}<td>${(p.revenue / p.spend || 0).toFixed(2)}x<td>${p.conversions}<td>${p.clicks}`).join('')}</table></div>`;
+      <div class="card scroll"><table class="rtable"><thead><tr><th>Platform<th>Spend<th>Revenue<th>ROAS<th>Conversions<th>Clicks</tr></thead>
+      ${d.by_platform.map(p => `<tr><td data-label="${t('Platform')}">${pill(p.platform)}<td data-label="${t('Spend')}">${money(p.spend)}<td data-label="${t('Revenue')}">${money(p.revenue)}<td data-label="ROAS">${(p.revenue / p.spend || 0).toFixed(2)}x<td data-label="${t('Conversions')}">${p.conversions}<td data-label="${t('Clicks')}">${p.clicks}`).join('')}</table></div>`;
     const rm = $('#rmdemo', el);
     if (rm) rm.onclick = async () => { if (confirm(t('Delete the sample campaigns? Your real campaigns are kept.'))) { await api('/demo', { method: 'DELETE' }); views.dashboard(el); } };
   },
@@ -92,10 +92,10 @@ const views = {
         <label>Headline<input name="headline"></label>
         <label>Landing URL<input name="landing_url" type="url"></label>
         <button class="pri">Create campaign</button></form><div id="err" class="toast"></div></div>
-      <div class="card scroll"><table><tr><th>Name<th>Platform<th>Status<th>Budget/day<th>Spend 7d<th>CTR<th>CPA<th>ROAS<th></tr>
-      ${rows.map(c => `<tr><td>${esc(c.name)}<td>${pill(c.platform)}<td class="st-${c.status}">${c.status}<td>${money(c.daily_budget)}
-        <td>${money(c.spend)}<td>${c.ctr}%<td>${c.cpa ? money(c.cpa) : '–'}<td>${c.roas}x
-        <td><button data-t="${c.id}" data-s="${c.status === 'active' ? 'paused' : 'active'}">${c.status === 'active' ? 'Pause' : 'Resume'}</button>
+      <div class="card scroll"><table class="rtable"><thead><tr><th>Name<th>Platform<th>Status<th>Budget/day<th>Spend 7d<th>CTR<th>CPA<th>ROAS<th></tr></thead>
+      ${rows.map(c => `<tr><td data-label="${t('Name')}">${esc(c.name)}<td data-label="${t('Platform')}">${pill(c.platform)}<td data-label="${t('Status')}" class="st-${c.status}">${c.status}<td data-label="${t('Budget/day')}">${money(c.daily_budget)}
+        <td data-label="${t('Spend 7d')}">${money(c.spend)}<td data-label="CTR">${c.ctr}%<td data-label="CPA">${c.cpa ? money(c.cpa) : '–'}<td data-label="ROAS">${c.roas}x
+        <td data-label=""><button data-t="${c.id}" data-s="${c.status === 'active' ? 'paused' : 'active'}">${c.status === 'active' ? 'Pause' : 'Resume'}</button>
         <button data-d="${c.id}">✕</button>`).join('')}</table></div>`;
     $('#f').onsubmit = async e => {
       e.preventDefault();
@@ -289,10 +289,10 @@ const views = {
     const stage = s => `<span class="pill" style="background:${{ new: '#888', engaged: '#3498db', qualified: '#f39c12', won: '#27ae60', lost: '#7f8c8d' }[s]}">${s}</span>`;
     el.innerHTML = `<h2>WhatsApp Sales <span class="muted">· ${t('{mode} mode', { mode: t(st.mode) })}</span></h2>
       ${st.live ? '' : '<p class="muted">Demo mode: messages are simulated, nothing is sent. Add your WhatsApp credentials on the Connections page to go live.</p>'}
-      <div class="grid" style="grid-template-columns:1fr 1.4fr;align-items:start">
+      <div class="grid wa-grid">
         <div>
-          <div class="card scroll"><table><tr><th>Lead<th>Stage<th>Campaign</tr>
-            ${leads.map(l => `<tr data-l="${l.id}" style="cursor:pointer"><td>${esc(l.name || l.phone)}${l.handoff ? ' 🧑' : ''}${l.opted_out ? ' 🚫' : ''}<td>${stage(l.stage)}<td>${esc(l.campaign || '–')}`).join('') || '<tr><td colspan=3 class="muted">No leads yet</tr>'}</table></div>
+          <div class="card scroll"><table class="rtable"><thead><tr><th>Lead<th>Stage<th>Campaign</tr></thead>
+            ${leads.map(l => `<tr data-l="${l.id}" style="cursor:pointer"><td data-label="${t('Lead')}">${esc(l.name || l.phone)}${l.handoff ? ' 🧑' : ''}${l.opted_out ? ' 🚫' : ''}<td data-label="${t('Stage')}">${stage(l.stage)}<td data-label="${t('Campaign')}">${esc(l.campaign || '–')}`).join('') || '<tr><td colspan=3 class="muted">No leads yet</tr>'}</table></div>
           <div class="card"><b>Simulate a customer</b><form id="sim" class="row" style="margin-top:8px">
             <label>Phone<input name="phone" value="5511999990000" required></label>
             <label>From campaign<select name="campaign_id"><option value="">(none)</option>${camps.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></label>
@@ -309,6 +309,7 @@ const views = {
         <form id="reply" class="row" style="grid-template-columns:1fr auto"><input name="text" placeholder="Reply as human (pauses AI)…" required autocomplete="off"><button class="pri">Send</button></form>
         <p>${l.handoff ? `<button data-h="0">Give back to AI</button>` : `<button data-h="1">Take over</button>`}
         ${l.stage !== 'won' ? `<button data-won>Mark sold…</button>` : ''}</p>`;
+      if (matchMedia('(max-width:700px)').matches) $('#chatbox').scrollIntoView({ behavior: 'smooth', block: 'start' });   // phones stack the chat below the lists
       $('#reply').onsubmit = async e => { e.preventDefault(); const r = await api(`/leads/${id}/send`, { method: 'POST', body: { text: e.target.text.value } }); if (r.error) alert(t(r.error)); views.whatsapp(el).then(() => open(id)); };
       $('#chatbox').onclick = async e => {
         const b = e.target.closest('button'); if (!b) return;
