@@ -52,6 +52,7 @@ class VidIn(BaseModel):
     social_proof: str = Field("", max_length=50)
     scene_hint: str = Field("", max_length=200)
     duration: int = Field(5, ge=4, le=15)
+    formats: Optional[list[str]] = None      # 'platform:format' entries, e.g. 'meta:reel'; None = every format of the chosen platforms
     resolution: str = "720p"                  # 480p = cheap draft, 720p = standard
     product_image: Optional[str] = None
 
@@ -69,6 +70,10 @@ def _validate(body: VidIn, user_id: int) -> str:
         raise HTTPException(400, "Video needs your Higgsfield API key (Connections page)")
     if any(p not in VIDEO_FORMATS for p in body.platforms):
         raise HTTPException(400, "unknown platform")
+    if body.formats is not None:
+        valid = {f"{p}:{f}" for p in body.platforms for f in VIDEO_FORMATS[p]}
+        if not body.formats or any(f not in valid for f in body.formats):
+            raise HTTPException(400, "unknown video format for the selected platforms")
     if body.resolution not in ("480p", "720p"):
         raise HTTPException(400, "resolution must be 480p or 720p")
     if body.theme not in THEMES or body.language not in LANGS:
@@ -76,9 +81,16 @@ def _validate(body: VidIn, user_id: int) -> str:
     return key
 
 
+def _selected(body: VidIn):
+    """(platform, format, (w, h, ratio)) for every output the request asks for."""
+    wanted = None if body.formats is None else set(body.formats)
+    return [(p, f, spec) for p in dict.fromkeys(body.platforms) for f, spec in VIDEO_FORMATS[p].items()
+            if wanted is None or f"{p}:{f}" in wanted]
+
+
 def _plan(body: VidIn):
     prompt = ai.video_prompt(body.description, body.tone, body.theme, body.scene_hint, body.duration)
-    ratios = sorted({v[2] for p in dict.fromkeys(body.platforms) for v in VIDEO_FORMATS[p].values()})
+    ratios = sorted({spec[2] for _, _, spec in _selected(body)})
     est = {r: imagegen.estimate_video_usd(r, body.duration, body.resolution) for r in ratios}
     return prompt, est, round(sum(est.values()), 4)
 
@@ -104,16 +116,15 @@ def generate(body: VidIn, bg: BackgroundTasks, user: dict = Depends(current_user
     params = json.dumps({**body.model_dump(exclude={"product_image"}), "prompt": prompt})
     ids = []
     with session_scope() as session:
-        for p in dict.fromkeys(body.platforms):
-            for fmt, (w, h, ratio) in VIDEO_FORMATS[p].items():
-                share = est[ratio] / sum(1 for q in dict.fromkeys(body.platforms)
-                                         for v in VIDEO_FORMATS[q].values() if v[2] == ratio)
-                video = Video(user_id=user["id"], platform=p, format=fmt, width=w, height=h, ratio=ratio,
-                              duration=body.duration, cost_usd=round(share, 4), job=job, params=params,
-                              started_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"))
-                session.add(video)
-                session.flush()
-                ids.append(video.id)
+        outputs = _selected(body)
+        for p, fmt, (w, h, ratio) in outputs:
+            share = est[ratio] / sum(1 for _, _, spec in outputs if spec[2] == ratio)
+            video = Video(user_id=user["id"], platform=p, format=fmt, width=w, height=h, ratio=ratio,
+                          duration=body.duration, cost_usd=round(share, 4), job=job, params=params,
+                          started_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"))
+            session.add(video)
+            session.flush()
+            ids.append(video.id)
     bg.add_task(run_job, ids)
     return {"videos": ids, "estimated_usd": total}
 
@@ -129,16 +140,48 @@ def _set(ids, **kw):
 
 
 def _composite(clip: Path, overlay_png: Path, out: Path, w: int, h: int, dur: int):
-    """Cover-fit the clip to WxH, fade the overlay in, encode H.264 without audio."""
+    """Cover-fit the clip to WxH, fade the overlay in, encode H.264 without audio.
+    veryfast + one thread: about 40% faster than preset medium and, more importantly, ~2x less peak memory
+    (the production host has <1 GB of RAM, where 1080x1920 at preset medium was OOM-killed)."""
     fc = (f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1[v];"
           "[1:v]format=rgba,fade=t=in:st=0.3:d=0.7:alpha=1[o];[v][o]overlay=0:0:shortest=1[out]")
     cmd = [imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-loglevel", "error", "-i", str(clip), "-loop", "1",
            "-t", str(dur), "-i", str(overlay_png), "-filter_complex", fc, "-map", "[out]", "-an",
-           "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20", "-preset", "medium",
+           "-threads", "1", "-filter_threads", "1", "-filter_complex_threads", "1",
+           "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "21", "-preset", "veryfast",
            "-movflags", "+faststart", "-t", str(dur), str(out)]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     if r.returncode != 0 or not out.exists():
         raise RuntimeError("ffmpeg failed: " + r.stderr[-200:])
+
+
+def _prepare_overlays(rows, body, product, tmp: Path):
+    """Ad copy + overlay PNG for every output row. Needs nothing from the generated clip, so run_job does this while
+    Higgsfield is still rendering. Returns (copies by platform, overlay path by row id, error text by row id)."""
+    copies, overlays, errors = {}, {}, {}
+    for r in rows:
+        try:
+            if r["platform"] not in copies:
+                copies[r["platform"]] = ai.creative_copy(r["platform"], body.product, body.description,
+                                                         body.audience, body.tone, LANGS[body.language], body.language)
+            png = tmp / f"ov_{r['id']}.png"
+            render((r["width"], r["height"]), copies[r["platform"]], product, body.theme, body.price,
+                   body.social_proof, overlay=True).save(png)
+            overlays[r["id"]] = png
+        except Exception as e:
+            errors[r["id"]] = str(e)[:200]
+    return copies, overlays, errors
+
+
+def _run_clips(ratios, gen, prepare):
+    """Start one generation per aspect ratio, run `prepare` in this thread while they render, then wait for all."""
+    with ThreadPoolExecutor(max_workers=len(ratios)) as ex:
+        futures = [ex.submit(gen, r) for r in ratios]
+        try:
+            prepare()
+        finally:
+            for f in futures:
+                f.result()     # gen() records its own errors; this only waits
 
 
 GEN_TIMEOUT = 2400          # seconds to wait for Higgsfield before giving up (request keeps its id, can be resumed)
@@ -178,7 +221,7 @@ def run_job(ids):
                     url = sub["status_url"]
                 else:
                     _set(grp, status="generating", error=None)
-                d = imagegen.wait(url, GEN_TIMEOUT, key, interval=5, on_status=lambda st: _set(grp, provider_status=st))
+                d = imagegen.wait(url, GEN_TIMEOUT, key, interval=2, max_interval=10, on_status=lambda st: _set(grp, provider_status=st))
                 dest = tmp / f"{ratio.replace(':', 'x')}.mp4"
                 imagegen.download_video(d, dest)
                 results[ratio] = dest
@@ -188,27 +231,21 @@ def run_job(ids):
                     msg = "still processing at Higgsfield after 40 min - use 'Check again' later"
                 errors[ratio] = msg
 
-        ratios = sorted({r["ratio"] for r in rows})
-        with ThreadPoolExecutor(max_workers=len(ratios)) as ex:
-            list(ex.map(gen, ratios))
-        copies = {}
+        prepared = {}
+        _run_clips(sorted({r["ratio"] for r in rows}), gen,
+                   lambda: prepared.update(zip(("copies", "overlays", "errors"), _prepare_overlays(rows, body, product, tmp))))
+        copies, overlays, prep_errors = prepared["copies"], prepared["overlays"], prepared["errors"]
         for r in rows:
             if r["ratio"] not in results:
                 _set([r["id"]], status="failed", error=errors.get(r["ratio"], "generation failed"))
                 continue
             try:
+                if r["id"] in prep_errors:
+                    raise RuntimeError(prep_errors[r["id"]])
                 _set([r["id"]], status="compositing")
-                if r["platform"] not in copies:
-                    copies[r["platform"]] = ai.creative_copy(r["platform"], body.product, body.description,
-                                                             body.audience, body.tone, LANGS[body.language],
-                                                             body.language)
                 copy = copies[r["platform"]]
-                ov = render((r["width"], r["height"]), copy, product, body.theme, body.price, body.social_proof,
-                            overlay=True)
-                png = tmp / f"ov_{r['id']}.png"
-                ov.save(png)
                 fname = f"{uuid.uuid4().hex}.mp4"
-                _composite(results[r["ratio"]], png, VIDEO_DIR / fname, r["width"], r["height"], body.duration)
+                _composite(results[r["ratio"]], overlays[r["id"]], VIDEO_DIR / fname, r["width"], r["height"], body.duration)
                 _set([r["id"]], status="done", file=fname, headline=copy["headline"], cta=copy.get("cta", ""),
                      error=None)
             except Exception as e:

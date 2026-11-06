@@ -3,6 +3,7 @@ composited on top by render.py, so the product label is never redrawn by the mod
 from __future__ import annotations
 import io
 import math
+import random
 import time
 import uuid
 import httpx
@@ -82,8 +83,20 @@ def submit(path: str, body: dict, key: str) -> dict:
         raise ImageGenError(f"network error: {e.__class__.__name__}")
 
 
-def wait(status_url: str, timeout: int, key: str, interval: float = 2, on_status=None) -> dict:
-    """Poll status_url until terminal; returns the completed JSON. Transient network errors are retried."""
+def _next_interval(interval: float, max_interval: float | None) -> float:
+    """Base delay for the next poll: x1.5 per poll up to max_interval (no jitter in the stored value)."""
+    return interval if not max_interval else min(max_interval, interval * 1.5)
+
+
+def _pause(interval: float, max_interval: float | None) -> float:
+    """What to actually sleep: the base delay plus up to 0.5 s of jitter when backing off, so workers don't poll in step."""
+    return interval + (random.uniform(0, 0.5) if max_interval else 0)
+
+
+def wait(status_url: str, timeout: int, key: str, interval: float = 2, on_status=None, max_interval: float | None = None) -> dict:
+    """Poll status_url until terminal; returns the completed JSON. Transient network errors are retried.
+    With max_interval the delay starts at `interval` and grows x1.5 per poll up to max_interval, plus a little jitter
+    (Higgsfield's recommended polling pattern): quick to notice short jobs, gentle on long ones."""
     deadline = time.time() + timeout
     errors = 0
     while time.time() < deadline:
@@ -95,7 +108,8 @@ def wait(status_url: str, timeout: int, key: str, interval: float = 2, on_status
             errors += 1
             if errors > 10:
                 raise ImageGenError("network error while polling")
-            time.sleep(interval)
+            time.sleep(_pause(interval, max_interval))
+            interval = _next_interval(interval, max_interval)
             continue
         d = s.json()
         st = d.get("status")
@@ -105,7 +119,8 @@ def wait(status_url: str, timeout: int, key: str, interval: float = 2, on_status
             return d
         if st in ("failed", "nsfw", "canceled"):
             raise ImageGenError(f"generation {st}" + (" (rejected by content moderation)" if st == "nsfw" else ""))
-        time.sleep(interval)
+        time.sleep(_pause(interval, max_interval))
+        interval = _next_interval(interval, max_interval)
     raise ImageGenError("timed out")
 
 
@@ -153,7 +168,8 @@ TOKEN_USD = {"480p": 0.0214, "720p": 0.0214, "1080p": 0.0234}   # per 1,000 vide
 def _vbody(prompt: str, ratio: str, duration: int, resolution: str) -> dict:
     return {"prompt": prompt[:1500], "duration": int(duration), "aspect_ratio": ratio,
             "resolution": resolution if resolution in RES else "720p",
-            "output_format": "mp4", "generate_audio": False}
+            "output_format": "mp4", "generate_audio": False,
+            "bitrate_mode": "standard"}      # default is "high": bigger files to download and composite, no benefit for ad clips
 
 
 def estimate_video_usd(ratio: str, duration: int, resolution: str) -> float:

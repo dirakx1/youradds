@@ -69,7 +69,8 @@ const ES = {
   'Scene idea (don\'t name the product)': 'Idea de escena (no nombres el producto)', 'cozy bedroom at night': 'dormitorio acogedor de noche',
   'Length': 'Duración', 'Quality': 'Calidad', 'Draft 480p (~$0.21/s)': 'Borrador 480p (~$0.21/s)', 'Standard 720p (~$0.46/s)': 'Estándar 720p (~$0.46/s)',
   'Estimate & generate': 'Estimar y generar', 'No videos yet.': 'Aún no hay videos.', 'Check again': 'Comprobar de nuevo', 'Cancel (refund)': 'Cancelar (reembolso)',
-  'Meta (Reel 9:16, Feed 1:1)': 'Meta (Reel 9:16, Feed 1:1)', 'Google / YouTube (16:9)': 'Google / YouTube (16:9)',
+  'Meta Reel (9:16)': 'Meta Reel (9:16)', 'Meta Feed (1:1)': 'Meta Feed (1:1)', 'TikTok (9:16)': 'TikTok (9:16)', 'Google / YouTube (16:9)': 'Google / YouTube (16:9)',
+  '9:16 serves Meta Reels and TikTok from one clip. Every extra aspect ratio is another generation: slower and billed.': 'El formato 9:16 sirve para Meta Reels y TikTok con un solo clip. Cada proporción adicional es otra generación: más lenta y se cobra.',
   'One background clip is generated per aspect ratio and shared across platforms. Your real product photo is composited on top, never redrawn. No audio. You\'ll see the estimated cost and confirm before anything is billed.':
     'Se genera un clip de fondo por proporción de pantalla y se comparte entre plataformas. Tu foto real del producto se superpone, nunca se redibuja. Sin audio. Verás el costo estimado y confirmarás antes de que se cobre algo.',
   'Add your Higgsfield API key on the <a href="#connections">Connections</a> page to enable video.': 'Agrega tu clave de API de Higgsfield en la página de <a href="#connections">Conexiones</a> para habilitar el video.',

@@ -191,7 +191,9 @@ const views = {
 
   async videos(el) {
     const opt = await api('/creatives/options');
-    const label = { meta: 'Meta (Reel 9:16, Feed 1:1)', tiktok: 'TikTok (9:16)', google: 'Google / YouTube (16:9)' };
+    // one checkbox per output; every aspect ratio is a separate (billed) generation, so only 9:16 is pre-selected
+    const outputs = [['meta:reel', 'Meta Reel (9:16)', true], ['meta:feed_square', 'Meta Feed (1:1)', false],
+      ['tiktok:vertical', 'TikTok (9:16)', true], ['google:youtube_landscape', 'Google / YouTube (16:9)', false]];
     let timer = null;
     const mins = s => s == null ? '' : s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
     const stateText = v => v.status === 'failed' ? '⚠ ' + esc(t(v.error || 'failed'))
@@ -231,7 +233,8 @@ const views = {
         <label>Rating line (optional, must be true)<input name="social_proof" maxlength="50"></label>
         <label>Product image (PNG, transparent bg)<input type="file" name="img" accept="image/png,image/jpeg,image/webp"></label>
         <fieldset style="grid-column:1/-1;border:0;padding:0;margin:0"><span class="muted">Platforms</span><br>
-          ${Object.keys(label).map(p => `<label style="display:inline-block;margin-right:16px;width:auto"><input type="checkbox" name="pf" value="${p}" checked style="display:inline;width:auto"> ${label[p]}</label>`).join('')}</fieldset>
+          ${outputs.map(([v, text, on]) => `<label style="display:inline-block;margin-right:16px;width:auto"><input type="checkbox" name="pf" value="${v}" ${on ? 'checked' : ''} style="display:inline;width:auto"> ${text}</label>`).join('')}
+          <br><span class="muted">9:16 serves Meta Reels and TikTok from one clip. Every extra aspect ratio is another generation: slower and billed.</span></fieldset>
         <button class="pri" ${opt.scene_available ? '' : 'disabled'}>Estimate &amp; generate</button></form>
         <p class="muted" style="margin:10px 0 0">One background clip is generated per aspect ratio and shared across platforms. Your real product photo is composited on top, never redrawn. No audio. You'll see the estimated cost and confirm before anything is billed.</p>
         <div id="err" class="toast"></div></div>
@@ -240,8 +243,8 @@ const views = {
     const file = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
     $('#f').onsubmit = async e => {
       e.preventDefault(); const fd = new FormData(e.target), btn = $('button.pri', e.target); $('#err').textContent = '';
-      const platforms = fd.getAll('pf'); if (!platforms.length) return $('#err').textContent = t('Pick at least one platform');
-      const body = { platforms, duration: +fd.get('duration') };
+      const formats = fd.getAll('pf'); if (!formats.length) return $('#err').textContent = t('Pick at least one platform');
+      const body = { platforms: [...new Set(formats.map(f => f.split(':')[0]))], formats, duration: +fd.get('duration') };
       for (const k of ['product', 'description', 'audience', 'language', 'theme', 'price', 'social_proof', 'scene_hint', 'resolution']) body[k] = fd.get(k) || '';
       const f = fd.get('img'); if (f && f.size) { if (f.size > 8e6) return $('#err').textContent = t('Image over 8MB'); body.product_image = await file(f); }
       btn.disabled = true;
