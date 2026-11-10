@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import sessionmaker
 
-from .config import database_url
+from .config import DEFAULT_CURRENCY, database_url
 from .models import Campaign, Metric, SCHEMA
 
 
@@ -60,17 +60,23 @@ def check_database_revision() -> None:
             raise RuntimeError("Database migration revision is not current; run Alembic upgrade before startup")
 
 
+# Sample data is written in USD-sized numbers and scaled to the display currency (1 USD ~ 4000 COP).
+DEMO_UNIT = 4000 if DEFAULT_CURRENCY == "COP" else 1
+
+
 def synth_metrics(session, campaign_id: int, budget: float, quality: float, days: int = 14):
+    """``budget`` is in the display currency; CPM and order value are scaled to match."""
+    unit = DEMO_UNIT
     rnd = random.Random(campaign_id)
     values = []
     for i in range(days):
         day = (date.today() - timedelta(days=days - 1 - i)).isoformat()
         spend = budget * rnd.uniform(0.75, 1.0)
-        cpm = rnd.uniform(6, 14)
+        cpm = rnd.uniform(6, 14) * unit
         imps = int(spend / cpm * 1000)
         clicks = int(imps * rnd.uniform(0.008, 0.025) * quality)
         conv = int(clicks * rnd.uniform(0.02, 0.06) * quality)
-        rev = conv * rnd.uniform(28, 60)
+        rev = conv * rnd.uniform(28, 60) * unit
         values.append({"campaign_id": campaign_id, "day": day, "impressions": imps, "clicks": clicks,
                        "spend": round(spend, 2), "conversions": conv, "revenue": round(rev, 2)})
     stmt = insert(Metric.__table__).values(values)
@@ -84,18 +90,19 @@ def synth_metrics(session, campaign_id: int, budget: float, quality: float, days
 
 def seed_demo(session, user_id: int):
     demo = [
-        ("meta", "Spring Sale - Lookalike", "sales", 50, 1.3),
-        ("meta", "Retargeting - Cart Abandoners", "sales", 30, 1.6),
-        ("tiktok", "UGC Video - Gen Z", "traffic", 40, 0.7),
-        ("tiktok", "Spark Ads - Best Sellers", "sales", 35, 1.1),
-        ("google", "Search - Brand Terms", "sales", 25, 1.8),
-        ("google", "Performance Max - All Products", "sales", 60, 0.5),
+        ("meta", "Día de la Madre - Público similar", "sales", 50, 1.3),
+        ("meta", "Retargeting - Carrito abandonado", "sales", 30, 1.6),
+        ("tiktok", "Video de clientes - Gen Z", "traffic", 40, 0.7),
+        ("tiktok", "Spark Ads - Más vendidos", "sales", 35, 1.1),
+        ("google", "Búsqueda - Nombre de la marca", "sales", 25, 1.8),
+        ("google", "Performance Max - Todos los productos", "sales", 60, 0.5),
     ]
-    for platform, name, objective, budget, quality in demo:
+    for platform, name, objective, usd_budget, quality in demo:
+        budget = usd_budget * DEMO_UNIT
         campaign = Campaign(user_id=user_id, demo=1, platform=platform, name=name, objective=objective,
-                            daily_budget=budget, headline="Shop the new collection",
-                            body="Limited-time offer. Free shipping today.", cta="Shop Now",
-                            landing_url="https://example.com", audience="Women 25-44, US")
+                            daily_budget=budget, headline="Conoce la nueva colección",
+                            body="Oferta por tiempo limitado. Envío gratis hoy.", cta="Comprar ahora",
+                            landing_url="https://example.com", audience="Mujeres 25-44, Colombia")
         session.add(campaign)
         session.flush()
         synth_metrics(session, campaign.id, budget, quality)

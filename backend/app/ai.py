@@ -48,13 +48,14 @@ TEMPLATES = {
 
 
 def generate_copy(platform: str, product: str, audience: str, tone: str, n: int = 4,
-                  language: str = "English", lang_code: str = "en") -> list[dict]:
+                  language: str = "English", lang_code: str = "en", brand: str = "") -> list[dict]:
     h_lim, b_lim = LIMITS[platform]
     if llm_available():
         try:
             out = _ask(
                 "You are an expert performance-marketing copywriter. Reply with ONLY a JSON array. "
-                f"Write all copy (headline, body, cta, angle) in {language}.",
+                f"Write all copy (headline, body, cta, angle) in {language}. Never invent statistics, reviews or prices."
+                + (f"\n{brand}" if brand else ""),
                 f"Write {n} {platform} ad variants in {language} for: {product}\nAudience: {audience}\nTone: {tone}\n"
                 f"Each item: {{\"headline\" (<= {h_lim} chars), \"body\" (<= {b_lim} chars), \"cta\", \"angle\"}}. "
                 "Use a different angle in each (benefit, urgency, social proof, curiosity...).")
@@ -99,11 +100,12 @@ def recommend(campaigns: list[dict]) -> list[dict]:
     return sorted(recs, key=lambda r: order[r["severity"]])
 
 
-def chat(question: str, context: dict) -> str:
+def chat(question: str, context: dict, brand: str = "") -> str:
     if llm_available():
         try:
             return _ask("You are an ads-optimization copilot for Meta, TikTok and Google Ads. "
-                        "Be concise and specific; use the data provided.",
+                        "Be concise and specific; use the data provided. Answer in Spanish unless asked otherwise."
+                        + (f"\n{brand}" if brand else ""),
                         f"Account data (last 7 days):\n{json.dumps(context)}\n\nQuestion: {question}", 800)
         except Exception as e:
             return f"AI error: {e}"
@@ -128,7 +130,7 @@ FALLBACK = {
 
 
 def creative_copy(platform: str, product: str, description: str, audience: str, tone: str,
-                  language: str, lang_code: str = "en") -> dict:
+                  language: str, lang_code: str = "en", brand: str = "") -> dict:
     """Copy for an image ad. Never invents statistics, reviews, awards or medical/health claims."""
     h_lim = LIMITS[platform][0]
     if llm_available():
@@ -136,7 +138,7 @@ def creative_copy(platform: str, product: str, description: str, audience: str, 
             out = _ask(
                 "You write image-ad copy. Reply with ONLY a JSON object. Hard rules: do not invent statistics, "
                 "customer counts, reviews, testimonials, awards, discounts or prices; do not make health, weight-loss "
-                "or income claims; use only facts from the brief.",
+                "or income claims; use only facts from the brief." + (f"\n{brand}" if brand else ""),
                 f"Language: {language}\nPlatform style: {STYLE[platform].format(h=h_lim)}\nProduct: {product}\n"
                 f"Description: {description or 'n/a'}\nAudience: {audience or 'general'}\nTone: {tone}\n"
                 "JSON keys: headline, accent (one word copied from the headline to highlight), "

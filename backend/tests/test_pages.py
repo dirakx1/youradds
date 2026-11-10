@@ -63,7 +63,7 @@ class LanguageRouteTests(unittest.TestCase):
         self.assertEqual((r.status_code, r.headers["location"]), (302, "/es/"))
         r = self.get("/about/", **{"Accept-Language": "fr,en;q=0.8"})
         self.assertEqual(r.headers["location"], "/en/about/")
-        self.assertEqual(self.get("/privacy").headers["location"], "/en/privacy/")           # no header: English
+        self.assertEqual(self.get("/privacy").headers["location"], "/es/privacy/")           # no header: Spanish (default)
         self.assertEqual(self.get("/terms", **{"Accept-Language": "es"}).headers["location"], "/es/terms/")
 
     def test_saved_language_cookie_beats_accept_language(self):
@@ -78,16 +78,16 @@ class LanguageRouteTests(unittest.TestCase):
         r = self.get("/sign-in?redirect=1", **{"Accept-Language": "es"})
         self.assertEqual(r.headers["location"], "/es/sign-in?redirect=1")
         r = self.get("/sso-callback?__clerk_status=verified")
-        self.assertEqual(r.headers["location"], "/en/sso-callback?__clerk_status=verified")
+        self.assertEqual(r.headers["location"], "/es/sso-callback?__clerk_status=verified")
 
     def test_accept_language_parsing_handles_junk(self):
         class Req:
             def __init__(self, header, cookie=""):
                 self.headers = {"accept-language": header}; self.cookies = {"lang": cookie} if cookie else {}
-        self.assertEqual(pages.preferred_lang(Req("")), "en")
+        self.assertEqual(pages.preferred_lang(Req("")), "es")
         self.assertEqual(pages.preferred_lang(Req("es;q=abc, en")), "en")
         self.assertEqual(pages.preferred_lang(Req("en;q=0.4, es;q=0.8")), "es")
-        self.assertEqual(pages.preferred_lang(Req("*")), "en")
+        self.assertEqual(pages.preferred_lang(Req("*")), "es")
 
 
 if __name__ == "__main__":

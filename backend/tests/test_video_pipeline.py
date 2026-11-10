@@ -14,7 +14,7 @@ from app import imagegen, videos
 
 
 def make_body(**kw):
-    return videos.VidIn(**{"platforms": ["meta", "tiktok", "google"], "product": "Shoes", **kw})
+    return videos.VidIn(**{"platforms": ["meta", "tiktok", "google"], "product": "Shoes", "language": "en", "theme": "purple", **kw})   # as after brand.fill
 
 
 class FfmpegTests(unittest.TestCase):
@@ -90,7 +90,7 @@ class FormatSelectionTests(unittest.TestCase):
         self.assertLess(total, videos._plan(make_body())[2])
 
     def test_unknown_or_foreign_formats_are_rejected(self):
-        with patch("app.videos.creds.higgsfield_key", return_value="id:secret"):
+        with patch("app.videos.creds.higgsfield_key", return_value="id:secret"), patch("app.videos.brand.get", return_value=None):
             videos._validate(make_body(formats=["meta:reel"]), 1)
             for bad in (["meta:nope"], ["google:youtube_landscape"], []):
                 with self.subTest(formats=bad), self.assertRaises(HTTPException) as cm:

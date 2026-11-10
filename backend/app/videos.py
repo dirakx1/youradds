@@ -16,14 +16,14 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import delete as sa_delete, select, update
 
-from . import ai, creds, imagegen
+from . import ai, brand, creds, imagegen
 from .auth import current_user
 from .config import CREATIVES_DIR, env
 from .creatives import LANGS, _decode_image
 from .db import session_scope
 from .models import Video
 from PIL import Image
-from .render import THEMES, render
+from .render import render, theme_words, valid_theme
 
 router = APIRouter(prefix="/api/videos", dependencies=[Depends(current_user)])
 VIDEO_DIR = CREATIVES_DIR.parent / "videos"
@@ -42,12 +42,12 @@ def _video_dict(row):
 
 class VidIn(BaseModel):
     platforms: list[str] = Field(min_length=1)
-    product: str = Field(min_length=1, max_length=80)
+    product: str = Field("", max_length=80)
     description: str = Field("", max_length=500)
     audience: str = Field("", max_length=120)
-    tone: str = Field("friendly", max_length=30)
-    language: str = "en"
-    theme: str = "purple"
+    tone: str = Field("", max_length=60)
+    language: str = ""
+    theme: str = ""
     price: str = Field("", max_length=20)
     social_proof: str = Field("", max_length=50)
     scene_hint: str = Field("", max_length=200)
@@ -76,7 +76,8 @@ def _validate(body: VidIn, user_id: int) -> str:
             raise HTTPException(400, "unknown video format for the selected platforms")
     if body.resolution not in ("480p", "720p"):
         raise HTTPException(400, "resolution must be 480p or 720p")
-    if body.theme not in THEMES or body.language not in LANGS:
+    brand.fill(user_id, body, kind="video")
+    if not valid_theme(body.theme) or body.language not in LANGS:
         raise HTTPException(400, "unknown theme or language")
     return key
 
@@ -89,7 +90,7 @@ def _selected(body: VidIn):
 
 
 def _plan(body: VidIn):
-    prompt = ai.video_prompt(body.description, body.tone, body.theme, body.scene_hint, body.duration)
+    prompt = ai.video_prompt(body.description, body.tone, theme_words(body.theme), body.scene_hint, body.duration)
     ratios = sorted({spec[2] for _, _, spec in _selected(body)})
     est = {r: imagegen.estimate_video_usd(r, body.duration, body.resolution) for r in ratios}
     return prompt, est, round(sum(est.values()), 4)
@@ -155,7 +156,7 @@ def _composite(clip: Path, overlay_png: Path, out: Path, w: int, h: int, dur: in
         raise RuntimeError("ffmpeg failed: " + r.stderr[-200:])
 
 
-def _prepare_overlays(rows, body, product, tmp: Path):
+def _prepare_overlays(rows, body, product, tmp: Path, brand_text: str = ""):
     """Ad copy + overlay PNG for every output row. Needs nothing from the generated clip, so run_job does this while
     Higgsfield is still rendering. Returns (copies by platform, overlay path by row id, error text by row id)."""
     copies, overlays, errors = {}, {}, {}
@@ -163,7 +164,7 @@ def _prepare_overlays(rows, body, product, tmp: Path):
         try:
             if r["platform"] not in copies:
                 copies[r["platform"]] = ai.creative_copy(r["platform"], body.product, body.description,
-                                                         body.audience, body.tone, LANGS[body.language], body.language)
+                                                         body.audience, body.tone, LANGS[body.language], body.language, brand_text)
             png = tmp / f"ov_{r['id']}.png"
             render((r["width"], r["height"]), copies[r["platform"]], product, body.theme, body.price,
                    body.social_proof, overlay=True).save(png)
@@ -202,6 +203,7 @@ def run_job(ids):
     key = creds.higgsfield_key(rows[0]["user_id"])
     body = VidIn(**{k: v for k, v in params.items() if k != "prompt"})
     prompt = params["prompt"]
+    brand_text = brand.prompt_block(brand.get(rows[0]["user_id"]))
     pimg = JOBS_DIR / f"{rows[0]['job']}.png"
     product = Image.open(pimg).convert("RGBA") if pimg.exists() else None
     with tempfile.TemporaryDirectory() as tmp:
@@ -233,7 +235,7 @@ def run_job(ids):
 
         prepared = {}
         _run_clips(sorted({r["ratio"] for r in rows}), gen,
-                   lambda: prepared.update(zip(("copies", "overlays", "errors"), _prepare_overlays(rows, body, product, tmp))))
+                   lambda: prepared.update(zip(("copies", "overlays", "errors"), _prepare_overlays(rows, body, product, tmp, brand_text))))
         copies, overlays, prep_errors = prepared["copies"], prepared["overlays"], prepared["errors"]
         for r in rows:
             if r["ratio"] not in results:

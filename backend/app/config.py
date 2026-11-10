@@ -7,6 +7,9 @@ if os.getenv("YOURADS_SKIP_DOTENV") != "1":
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 AI_MODEL = os.getenv("AI_MODEL", "claude-sonnet-5-5")
 PLATFORMS = ("meta", "tiktok", "google")
+# Currency amounts are shown in (ISO 4217). Stored numbers are in the ad account's own currency; sample data is
+# generated in this one. Per-brand currency comes with "Mi marca".
+DEFAULT_CURRENCY = os.getenv("DEFAULT_CURRENCY", "COP").upper()
 
 
 def env(name: str) -> str:

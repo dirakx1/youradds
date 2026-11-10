@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, update
 
-from . import ai, auth, creds
+from . import ai, auth, brand, config, creds
 from .auth import current_user
 from .config import PLATFORMS, validate_clerk_config
 from .db import check_database_revision, dispose_engine, engine, session_scope
@@ -39,6 +39,7 @@ async def lifespan(app):
 app = FastAPI(title="yourads - open-source AI ads manager", lifespan=lifespan)
 app.include_router(auth.router)
 app.include_router(creds.router)
+app.include_router(brand.router)
 app.include_router(whatsapp.hook)
 app.include_router(whatsapp.router)
 app.include_router(creatives.router)
@@ -56,21 +57,21 @@ class CampaignIn(BaseModel):
     platform: Platform
     name: str = Field(min_length=1)
     objective: Literal["sales", "traffic", "leads", "awareness", "whatsapp"] = "sales"
-    daily_budget: float = Field(20, gt=0)
+    daily_budget: float = Field(default_factory=lambda: 50000.0 if config.DEFAULT_CURRENCY == "COP" else 20.0, gt=0)
     headline: str = ""
     body: str = ""
-    cta: str = "Learn More"
+    cta: str = "Más información"
     landing_url: str = ""
     audience: str = ""
 
 
 class CopyIn(BaseModel):
     platform: Platform
-    product: str
-    audience: str = "everyone"
-    tone: str = "friendly"
+    product: str = ""                  # empty = the brand's first product
+    audience: str = ""                 # empty = the brand's ideal customer
+    tone: str = ""                     # empty = the brand's tone
     n: int = Field(4, ge=1, le=8)
-    language: str = "en"
+    language: str = ""                 # empty = the brand's language
 
 
 class ApplyIn(BaseModel):
@@ -134,7 +135,7 @@ def _own(session, cid: int, user_id: int):
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "ai": ai.llm_available()}
+    return {"ok": True, "ai": ai.llm_available(), "currency": config.DEFAULT_CURRENCY}
 
 
 @app.get("/api/campaigns")
@@ -237,10 +238,11 @@ def clear_demo(user: dict = Depends(current_user)):
 
 @app.post("/api/ai/copy")
 def ai_copy(body: CopyIn, user: dict = Depends(current_user)):
+    b = brand.fill(user["id"], body, kind="copy")
     if body.language not in creatives.LANGS:
         raise HTTPException(400, "unsupported language")
-    return {"variants": ai.generate_copy(body.platform, body.product, body.audience, body.tone, body.n,
-                                         creatives.LANGS[body.language], body.language),
+    return {"variants": ai.generate_copy(body.platform, body.product, body.audience or "everyone", body.tone or "friendly",
+                                         body.n, creatives.LANGS[body.language], body.language, brand.prompt_block(b)),
             "llm": ai.llm_available()}
 
 
@@ -277,7 +279,7 @@ def chat(body: ChatIn, user: dict = Depends(current_user)):
     totals = {k: sum(c[k] for c in campaigns) for k in ("spend", "revenue")}
     totals["roas"] = totals["revenue"] / totals["spend"] if totals["spend"] else 0
     slim = [{k: c[k] for k in ("name", "platform", "status", "daily_budget", "spend", "ctr", "cpa", "roas")} for c in campaigns]
-    return {"answer": ai.chat(body.question, {"totals": totals, "campaigns": slim})}
+    return {"answer": ai.chat(body.question, {"totals": totals, "campaigns": slim}, brand.prompt_block(brand.get(user["id"])))}
 
 
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend"

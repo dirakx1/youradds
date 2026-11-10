@@ -154,6 +154,27 @@ class Video(Base):
     started_at: Mapped[str | None] = mapped_column(Text)
 
 
+class Brand(Base):
+    """"Mi marca": the brand bible every generator reads. One per user; list fields are JSON text."""
+    __tablename__ = "brands"
+    __table_args__ = {"schema": SCHEMA}
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey(f"{SCHEMA}.users.id", ondelete="CASCADE"), primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    story: Mapped[str | None] = mapped_column(Text)
+    tone: Mapped[str | None] = mapped_column(Text)
+    language: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'es'"))
+    currency: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'COP'"))
+    palette: Mapped[str | None] = mapped_column(Text)          # JSON list of up to 3 hex colors
+    fonts: Mapped[str | None] = mapped_column(Text)
+    ideal_customer: Mapped[str | None] = mapped_column(Text)
+    objections: Mapped[str | None] = mapped_column(Text)
+    limits: Mapped[str | None] = mapped_column(Text)           # things the brand never says or shows
+    products: Mapped[str | None] = mapped_column(Text)        # JSON list of {name, description, price}
+    reviews: Mapped[str | None] = mapped_column(Text)          # JSON list of {name, text}; real ones only
+    completed_at: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[str | None] = mapped_column(Text, server_default=UTC_NOW)
+
+
 class Setting(Base):
     __tablename__ = "settings"
     __table_args__ = {"schema": SCHEMA}

@@ -10,12 +10,12 @@ from sqlalchemy import delete as sa_delete, select, update
 from PIL import Image, UnidentifiedImageError
 
 from concurrent.futures import ThreadPoolExecutor
-from . import ai, creds, imagegen
+from . import ai, brand, creds, imagegen
 from .auth import current_user
 from .config import CREATIVES_DIR, env
 from .db import session_scope
 from .models import Campaign, Creative
-from .render import FORMATS, THEMES, render
+from .render import FORMATS, THEMES, render, theme_words, valid_theme
 
 router = APIRouter(prefix="/api/creatives", dependencies=[Depends(current_user)])
 MAX_UPLOAD = 8 * 1024 * 1024
@@ -29,12 +29,12 @@ class Testimonial(BaseModel):
 
 class GenIn(BaseModel):
     platforms: list[str] = Field(min_length=1)
-    product: str = Field(min_length=1, max_length=80)
-    description: str = Field("", max_length=500)
-    audience: str = Field("", max_length=120)
-    tone: str = Field("friendly", max_length=30)
-    language: str = "en"
-    theme: str = "purple"
+    product: str = Field("", max_length=80)            # empty = the brand's first product
+    description: str = Field("", max_length=500)       # empty = from the brand's product
+    audience: str = Field("", max_length=120)          # empty = the brand's ideal customer
+    tone: str = Field("", max_length=60)               # empty = the brand's tone
+    language: str = ""                                 # empty = the brand's language
+    theme: str = ""                                    # empty = the brand palette (or purple without a brand)
     price: str = Field("", max_length=20)
     social_proof: str = Field("", max_length=50)       # user-supplied and true, e.g. "4.8/5 from 1,200 reviews"
     testimonials: list[Testimonial] = Field(default_factory=list, max_length=3)  # real ones only
@@ -78,7 +78,7 @@ def _cap() -> float:
 def make_scenes(body: "GenIn", ratios: set[str], key: str):
     """One scene per distinct aspect ratio (shared across platforms). Returns (scenes, cost_usd, warnings, prompt)."""
     warnings: list[str] = []
-    prompt = ai.scene_prompt(body.product, body.description, body.audience, body.tone, body.theme, body.scene_hint)
+    prompt = ai.scene_prompt(body.product, body.description, body.audience, body.tone, theme_words(body.theme), body.scene_hint)
     est = [imagegen.estimate_usd(prompt, r, key) for r in sorted(ratios)]
     if all(e is not None for e in est):
         total = sum(est)
@@ -122,13 +122,15 @@ def generate(body: GenIn, user: dict = Depends(current_user)):
     bad = [p for p in body.platforms if p not in FORMATS]
     if bad:
         raise HTTPException(400, f"unknown platform(s): {bad}")
-    if body.theme not in THEMES:
+    b = brand.fill(user["id"], body, kind="creative")
+    if not valid_theme(body.theme):
         raise HTTPException(400, "unknown theme")
     if body.language not in LANGS:
         raise HTTPException(400, "unsupported language")
     product = _decode_image(body.product_image) if body.product_image else None
     CREATIVES_DIR.mkdir(parents=True, exist_ok=True)
-    tests = [t.model_dump() for t in body.testimonials if t.name.strip() and t.text.strip()]
+    tests = [t for t in (x if isinstance(x, dict) else x.model_dump() for x in body.testimonials)
+             if t["name"].strip() and t["text"].strip()]   # brand reviews arrive as plain dicts
     scenes, spent, warnings, sprompt = {}, 0.0, [], None
     if body.scene:
         key = creds.higgsfield_key(user["id"])
@@ -139,7 +141,7 @@ def generate(body: GenIn, user: dict = Depends(current_user)):
     out = []
     for platform in dict.fromkeys(body.platforms):
         copy = ai.creative_copy(platform, body.product, body.description, body.audience, body.tone,
-                                LANGS[body.language], body.language)
+                                LANGS[body.language], body.language, brand.prompt_block(b))
         for fmt, size in FORMATS[platform].items():
             img = render(size, copy, product, body.theme, body.price, body.social_proof, testimonials=tests,
                          scene=scenes.get(imagegen.nearest_ratio(*size)))

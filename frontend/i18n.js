@@ -28,7 +28,12 @@ const ES = {
   'Delete the sample campaigns? Your real campaigns are kept.': '¿Eliminar las campañas de ejemplo? Tus campañas reales se conservan.',
   'Showing <b>sample data</b> until you connect your own ad accounts. ': 'Se muestran <b>datos de ejemplo</b> hasta que conectes tus propias cuentas publicitarias. ',
   // ---- campaigns ----
-  'Name': 'Nombre', 'Objective': 'Objetivo', 'Daily budget ($)': 'Presupuesto diario ($)', 'Headline': 'Titular',
+  'Name': 'Nombre', 'Objective': 'Objetivo', 'Daily budget ($)': 'Presupuesto diario ($)', 'Daily budget': 'Presupuesto diario',
+  'My brand': 'Mi marca', 'Using your brand': 'Usando tu marca', 'Edit': 'Editar', 'Ideal customer': 'Cliente ideal', 'Tone': 'Tono', 'Products': 'Productos',
+  'Every creative, video, copy and WhatsApp reply now uses this. You never have to enter it again.': 'Cada creatividad, video, texto y respuesta de WhatsApp usa esto. No tendrás que escribirlo de nuevo.',
+  'Create my first creatives': 'Crear mis primeras creatividades', 'Edit my brand': 'Editar mi marca', 'Back': 'Atrás', 'Finish': 'Terminar', 'Next': 'Siguiente',
+  'Add at least your business name, one product and your ideal customer.': 'Agrega al menos el nombre de tu negocio, un producto y tu cliente ideal.',
+ 'Headline': 'Titular',
   'Landing URL': 'URL de destino', 'Create campaign': 'Crear campaña', 'Status': 'Estado', 'Budget/day': 'Presupuesto/día',
   'Spend 7d': 'Gasto 7d', 'Pause': 'Pausar', 'Resume': 'Reanudar', 'Delete campaign?': '¿Eliminar la campaña?',
   'sales': 'ventas', 'traffic': 'tráfico', 'leads': 'leads', 'awareness': 'reconocimiento', 'whatsapp': 'whatsapp',
@@ -127,7 +132,7 @@ const ES = {
   'Google rejected the token or developer token': 'Google rechazó el token o el token de desarrollador', 'TikTok returned an unreadable response': 'TikTok devolvió una respuesta ilegible',
   // ---- profile ----
   'Profile': 'Perfil', 'Manage the details associated with your account.': 'Gestiona los datos asociados a tu cuenta.', 'Personal information': 'Información personal',
-  'Your name is visible across yourads. Your email is managed by Clerk.': 'Tu nombre es visible en yourads. Tu correo lo gestiona Clerk.', 'Email address': 'Correo electrónico',
+  'Your name is visible across youradds. Your email is managed by Clerk.': 'Tu nombre es visible en youradds. Tu correo lo gestiona Clerk.', 'Email address': 'Correo electrónico',
   'No primary email': 'Sin correo principal', 'Save changes': 'Guardar cambios', 'Profile picture': 'Foto de perfil', 'Use a square image for the best fit.': 'Usa una imagen cuadrada para un mejor ajuste.',
   'Choose image': 'Elegir imagen', 'Choose profile picture': 'Elegir foto de perfil', 'PNG, JPG, GIF, or WebP': 'PNG, JPG, GIF o WebP', 'Save picture': 'Guardar foto', 'Remove picture': 'Quitar foto',
   'Selected profile picture': 'Foto de perfil seleccionada', 'Name updated.': 'Nombre actualizado.', 'Profile picture updated.': 'Foto de perfil actualizada.', 'Profile picture removed.': 'Foto de perfil eliminada.',
@@ -136,7 +141,7 @@ const ES = {
   // ---- auth ----
   'Verify your email': 'Verifica tu correo', 'Verify your sign-in': 'Verifica tu inicio de sesión', 'Welcome back': 'Te damos la bienvenida', 'Create your account': 'Crea tu cuenta',
   'Reset your password': 'Restablece tu contraseña', 'Your account': 'Tu cuenta', 'Finishing sign in': 'Terminando el inicio de sesión', 'Connecting securely': 'Conectando de forma segura', 'Sign in': 'Iniciar sesión',
-  'Use yourads securely with email or Google.': 'Usa yourads de forma segura con correo o Google.', 'Continue with Google': 'Continuar con Google', 'OR': 'O',
+  'Use youradds securely with email or Google.': 'Usa youradds de forma segura con correo o Google.', 'Continue with Google': 'Continuar con Google', 'OR': 'O',
   'Email': 'Correo electrónico', 'Password': 'Contraseña', 'Forgot password?': '¿Olvidaste tu contraseña?', 'New here?': '¿Eres nuevo?', 'Create an account': 'Crea una cuenta',
   'Name (optional)': 'Nombre (opcional)', 'Confirm password': 'Confirmar contraseña', 'Create account': 'Crear cuenta', 'Already registered?': '¿Ya tienes cuenta?',
   'I agree to the <a href="{terms}" target="_blank" rel="noopener">Terms of Service</a> and acknowledge the <a href="{privacy}" target="_blank" rel="noopener">Privacy Policy</a>.':
@@ -145,9 +150,9 @@ const ES = {
   'Send a new code': 'Enviar un código nuevo', 'Enter the verification code sent to your email.': 'Ingresa el código de verificación enviado a tu correo.', 'Verify device': 'Verificar dispositivo',
   'Verification code': 'Código de verificación', 'New password': 'Nueva contraseña', 'Confirm new password': 'Confirmar nueva contraseña', 'Send reset code': 'Enviar código de restablecimiento',
   'Reset password': 'Restablecer contraseña', 'Back to sign in': 'Volver a iniciar sesión', 'Current password': 'Contraseña actual', 'Update password': 'Actualizar contraseña', 'Sign out': 'Cerrar sesión',
-  'SECURE SIGN-IN': 'INICIO DE SESIÓN SEGURO', 'Taking you back to yourads': 'Te llevamos de vuelta a yourads', 'Confirming your Google account and setting up your session.': 'Confirmando tu cuenta de Google y preparando tu sesión.',
+  'SECURE SIGN-IN': 'INICIO DE SESIÓN SEGURO', 'Taking you back to youradds': 'Te llevamos de vuelta a youradds', 'Confirming your Google account and setting up your session.': 'Confirmando tu cuenta de Google y preparando tu sesión.',
   'This usually takes just a moment. You can keep this page open.': 'Normalmente tarda solo un momento. Puedes mantener esta página abierta.', 'Try Google sign-in again': 'Intentar de nuevo con Google', 'Return to sign in': 'Volver a iniciar sesión',
-  'We couldn’t finish sign-in': 'No pudimos completar el inicio de sesión', 'Your Google account wasn’t connected to yourads.': 'Tu cuenta de Google no se conectó a yourads.',
+  'We couldn’t finish sign-in': 'No pudimos completar el inicio de sesión', 'Your Google account wasn’t connected to youradds.': 'Tu cuenta de Google no se conectó a youradds.',
   'Please try again.': 'Inténtalo de nuevo.', 'Clerk returned without an active session. Please try again.': 'Clerk respondió sin una sesión activa. Inténtalo de nuevo.',
   'Google sign-in could not be completed. Please try again.': 'No se pudo completar el inicio de sesión con Google. Inténtalo de nuevo.',
   'Checking your session': 'Comprobando tu sesión', 'Connecting securely…': 'Conectando de forma segura…',
@@ -242,7 +247,7 @@ function setLanguageLinks() {
 /** Call once at startup: set <html lang>, title, language links, and keep translating whatever the app renders. */
 export function startI18n() {
   document.documentElement.lang = lang;
-  if (lang === 'es') document.title = 'yourads – Gestor de anuncios con IA';
+  if (lang === 'es') document.title = 'youradds – Gestor de anuncios con IA';
   setLanguageLinks();
   addEventListener('hashchange', setLanguageLinks);
   if (lang !== 'es') return;

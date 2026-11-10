@@ -2,6 +2,7 @@
 price badge and CTA for a given canvas size. Platform UI safe zones are respected on 9:16 formats."""
 import math
 import os
+import re
 from functools import lru_cache
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps
 
@@ -19,6 +20,30 @@ THEMES = {
     "light": ((252, 248, 242), (228, 216, 202), (214, 62, 42), (28, 24, 22), (255, 255, 255)),
     "dark": ((34, 34, 40), (6, 6, 8), (110, 224, 160), (255, 255, 255), (0, 40, 20)),
 }
+
+def resolve_theme(theme: str):
+    """Theme name -> (top, bottom, accent, text, button text). 'brand:#a,#b,#c' builds one from the brand palette."""
+    if isinstance(theme, tuple):
+        return theme
+    if theme.startswith("brand:"):
+        cols = [tuple(int(c[i:i + 2], 16) for i in (1, 3, 5)) for c in theme[6:].split(",") if len(c) == 7]
+        if cols:
+            top = cols[0]
+            bottom = tuple(int(v * 0.3) for v in top)             # same hue, much darker: keeps text readable
+            accent = cols[2] if len(cols) > 2 else (cols[1] if len(cols) > 1 else (255, 205, 90))
+            lum = lambda c: 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+            return top, bottom, accent, (255, 255, 255), (255, 255, 255) if lum(accent) < 140 else (30, 20, 10)
+    return THEMES.get(theme, THEMES["purple"])
+
+
+def theme_words(theme: str) -> str:
+    """Theme as words for image/video prompts."""
+    return f"brand ({theme[6:]})" if theme.startswith("brand:") else theme
+
+
+def valid_theme(theme: str) -> bool:
+    return theme in THEMES or bool(re.fullmatch(r"brand:#[0-9a-f]{6}(,#[0-9a-f]{6}){0,2}", theme))
+
 
 _BOLD = [os.getenv("CREATIVE_FONT_BOLD", ""), "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
          "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "C:/Windows/Fonts/arialbd.ttf"]
@@ -137,7 +162,7 @@ def render(size, copy, product, theme="purple", price="", social_proof="", ratin
     """copy: headline, accent, subheadline, bullets[list], cta. product: RGBA PIL image or None.
     social_proof/rating/testimonials are shown only when the caller supplies them (never invented)."""
     w, h = size
-    top, bottom, accent, tx, btn_tx = THEMES.get(theme, THEMES["purple"])
+    top, bottom, accent, tx, btn_tx = resolve_theme(theme)
     if overlay:  # transparent layer (scrims + text + product) to be composited over a video
         img = _scrim(Image.new("RGBA", (w, h), (0, 0, 0, 0)), top, bottom)
     else:

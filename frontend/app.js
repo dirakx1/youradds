@@ -4,9 +4,37 @@ import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=i18n-1';
 const authPollers = new Set();
 
 const $ = (s, el = document) => el.querySelector(s);
-const money = n => '$' + Number(n || 0).toLocaleString(locale, { maximumFractionDigits: 2 });
+let currency = 'COP';   // overwritten from /api/health at boot
+const money = n => { n = Number(n || 0); try { return new Intl.NumberFormat(locale, { style: 'currency', currency, currencyDisplay: 'narrowSymbol', maximumFractionDigits: currency === 'COP' ? 0 : 2 }).format(n); } catch { return '$' + n.toLocaleString(locale); } };
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pill = p => `<span class="pill ${esc(p)}">${esc(p)}</span>`;
+
+let brandCache = null;   // the saved brand ("Mi marca"), or null until the account has completed one
+const brandText = {
+  products: v => (v || []).map(p => [p.name, p.description, p.price].join(' | ').replace(/( \| )+$/, '')).join('\n'),
+  reviews: v => (v || []).map(r => `${r.name}: ${r.text}`).join('\n'),
+  palette: v => (v || []).join(', '),
+};
+const brandParse = {
+  products: s => s.split('\n').map(l => l.split('|').map(x => x.trim())).filter(p => p[0]).map(p => ({ name: p[0], description: p[1] || '', price: p[2] || '' })),
+  reviews: s => s.split('\n').map(l => { const i = l.indexOf(':'); return i > 0 ? { name: l.slice(0, i).trim(), text: l.slice(i + 1).trim() } : null; }).filter(r => r && r.text),
+  palette: s => (s.match(/#[0-9a-fA-F]{6}/g) || []).slice(0, 3),
+};
+
+/** Forms that used to ask for product / audience / tone / language / theme read them from the brand instead:
+ *  hide and disable those fields (disabled fields are not submitted, so the server fills them) and make the product a list. */
+function applyBrand(form) {
+  const b = brandCache; if (!form || !b || !b.completed) return;
+  for (const n of ['description', 'audience', 'tone', 'language', 'theme', 'price']) {
+    const f = form.querySelector(`[name=${n}]`); if (!f) continue;
+    f.disabled = true; const l = f.closest('label'); if (l) l.hidden = true;
+  }
+  const p = form.querySelector('[name=product]');
+  if (p) { const sel = document.createElement('select'); sel.name = 'product'; sel.innerHTML = b.products.map(x => `<option>${esc(x.name)}`).join(''); p.replaceWith(sel); }
+  const note = document.createElement('p'); note.className = 'muted'; note.style.gridColumn = '1/-1';
+  note.innerHTML = `${t('Using your brand')}: <b>${esc(b.name)}</b> · <a href="#brand">${t('Edit')}</a>`;
+  form.prepend(note);
+}
 
 async function api(path, opts = {}) {
   const token = await auth.token();
@@ -88,7 +116,7 @@ const views = {
         <label>Platform<select name="platform"><option value="meta">Meta<option value="tiktok">TikTok<option value="google">Google</select></label>
         <label>Name<input name="name" required></label>
         <label>Objective<select name="objective"><option>sales<option>traffic<option>leads<option>awareness<option>whatsapp</select></label>
-        <label>Daily budget ($)<input name="daily_budget" type="number" min="1" step="0.01" value="20"></label>
+        <label>${t('Daily budget')} (${currency})<input name="daily_budget" type="number" min="1" step="any" value="${currency === 'COP' ? 50000 : 20}"></label>
         <label>Headline<input name="headline"></label>
         <label>Landing URL<input name="landing_url" type="url"></label>
         <button class="pri">Create campaign</button></form><div id="err" class="toast"></div></div>
@@ -113,6 +141,47 @@ const views = {
     };
   },
 
+  async brand(el) {
+    const { brand: saved, interview } = await api('/brand');
+    brandCache = saved && saved.completed ? saved : brandCache;
+    const state = { language: 'es', currency: 'COP', ...(saved || {}) };
+    const val = f => brandText[f] ? brandText[f](state[f]) : (state[f] || '');
+    const summary = () => `<div class="card"><h3>${esc(state.name)}</h3>
+      <p>${esc(state.story)}</p>
+      <p><b>${t('Ideal customer')}:</b> ${esc(state.ideal_customer)}<br><b>${t('Tone')}:</b> ${esc(state.tone || '–')}</p>
+      <p><b>${t('Products')}:</b></p><ul>${state.products.map(p => `<li>${esc(p.name)} ${p.price ? '· ' + esc(p.price) : ''}</li>`).join('')}</ul>
+      ${state.palette.length ? `<p>${state.palette.map(c => `<span style="display:inline-block;width:28px;height:28px;border-radius:6px;background:${esc(c)};margin-right:6px;vertical-align:middle" title="${esc(c)}"></span>`).join('')}</p>` : ''}
+      <p class="muted">${t('Every creative, video, copy and WhatsApp reply now uses this. You never have to enter it again.')}</p>
+      <button class="pri" id="go-creatives">${t('Create my first creatives')}</button> <button id="edit">${t('Edit my brand')}</button></div>`;
+    const step = i => {
+      const q = interview[i], last = i === interview.length - 1;
+      el.innerHTML = `<h2>${t('My brand')} <span class="muted">· ${i + 1}/${interview.length}</span></h2>
+        <div class="card"><div style="height:6px;background:var(--line);border-radius:3px;margin-bottom:14px"><div style="height:6px;border-radius:3px;background:var(--acc);width:${Math.round((i + 1) / interview.length * 100)}%"></div></div>
+          <form id="q" class="stack"><label><b>${esc(q.question)}</b>
+            <textarea name="a" rows="${['products', 'reviews', 'story'].includes(q.field) ? 6 : 3}" placeholder="${esc(q.hint)}">${esc(val(q.field))}</textarea></label>
+          <div id="err" class="toast"></div>
+          <div style="display:flex;gap:8px">${i ? `<button type="button" id="back">${t('Back')}</button>` : ''}<button class="pri">${last ? t('Finish') : t('Next')}</button></div></form></div>`;
+      $('#back', el)?.addEventListener('click', () => step(i - 1));
+      $('#q', el).onsubmit = async e => {
+        e.preventDefault(); const raw = new FormData(e.target).get('a').trim();
+        state[q.field] = brandParse[q.field] ? brandParse[q.field](raw) : raw;
+        if (!last) return step(i + 1);
+        try {
+          const r = await api('/brand', { method: 'PUT', body: Object.fromEntries(['name', 'story', 'tone', 'language', 'currency', 'palette', 'fonts', 'ideal_customer', 'objections', 'limits', 'products', 'reviews'].map(k => [k, state[k] ?? (brandParse[k] ? [] : '')])) });
+          Object.assign(state, r);
+          if (!r.completed) { $('#err', el).textContent = t('Add at least your business name, one product and your ideal customer.'); return; }
+          brandCache = r; done();
+        } catch (x) { $('#err', el).textContent = x.message; }
+      };
+    };
+    const done = () => {
+      el.innerHTML = `<h2>${t('My brand')}</h2>${summary()}`;
+      $('#edit', el).onclick = () => step(0);
+      $('#go-creatives', el).onclick = () => { location.hash = '#creatives'; };
+    };
+    saved && saved.completed ? done() : step(0);
+  },
+
   async studio(el) {
     const { languages } = await api('/creatives/options');
     el.innerHTML = `<h2>AI Studio <span class="muted">· ad copy generator</span></h2>
@@ -123,6 +192,7 @@ const views = {
         <label>Tone<select name="tone"><option>friendly<option>bold<option>professional<option>playful<option>urgent</select></label>
         <label>Language<select name="language">${Object.entries(languages).map(([k, v]) => `<option value="${k}">${v}`).join('')}</select></label>
         <button class="pri">Generate</button></form></div><div id="out"></div>`;
+    applyBrand($('#f'));
     $('#f').onsubmit = async e => {
       e.preventDefault(); const btn = $('button', e.target); btn.disabled = true;
       try {
@@ -151,7 +221,7 @@ const views = {
         <label>Language<select name="language">${Object.entries(opt.languages).map(([k, v]) => `<option value="${k}">${v}`).join('')}</select></label>
         <label>Tone<select name="tone"><option>friendly<option>bold<option>professional<option>playful<option>urgent</select></label>
         <label>Theme<select name="theme">${opt.themes.map(t => `<option>${t}`).join('')}</select></label>
-        <label>Price badge (optional)<input name="price" maxlength="20" placeholder="$119 USD"></label>
+        <label>Price badge (optional)<input name="price" maxlength="20" placeholder="$119.900 COP"></label>
         <label>Rating line (optional, must be true)<input name="social_proof" maxlength="50" placeholder="4.8/5 from 1,200 reviews"></label>
         <label>Product image (PNG, transparent bg works best)<input type="file" name="img" accept="image/png,image/jpeg,image/webp"></label>
         <label style="grid-column:1/-1">Real customer testimonials (optional, one per line: <code>Name: quote</code>)<textarea name="tests" rows="2" maxlength="600"></textarea></label>
@@ -163,7 +233,7 @@ const views = {
         <p class="muted" style="margin:10px 0 0">Reviews, ratings and customer counts are never invented — they only appear if you enter them. 9:16 formats keep text inside platform safe zones.</p>
         <div id="err" class="toast"></div></div>
       <div id="out" class="grid" style="grid-template-columns:repeat(auto-fill,minmax(240px,1fr))">${gallery(list)}</div>`;
-    cutoutButton($('#f'));
+    cutoutButton($('#f')); applyBrand($('#f'));
     const file = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
     $('#f').onsubmit = async e => {
       e.preventDefault(); const fd = new FormData(e.target), btn = $('button.pri', e.target); $('#err').textContent = '';
@@ -239,7 +309,7 @@ const views = {
         <p class="muted" style="margin:10px 0 0">One background clip is generated per aspect ratio and shared across platforms. Your real product photo is composited on top, never redrawn. No audio. You'll see the estimated cost and confirm before anything is billed.</p>
         <div id="err" class="toast"></div></div>
       <div id="vlist" class="grid" style="grid-template-columns:repeat(auto-fill,minmax(240px,1fr))"></div>`;
-    cutoutButton($('#f'));
+    cutoutButton($('#f')); applyBrand($('#f'));
     const file = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
     $('#f').onsubmit = async e => {
       e.preventDefault(); const fd = new FormData(e.target), btn = $('button.pri', e.target); $('#err').textContent = '';
@@ -402,7 +472,7 @@ const views = {
     const imageUrl = user.imageUrl && new URL(user.imageUrl).protocol === 'https:' ? user.imageUrl : '';
     el.innerHTML = `<h2>Profile</h2><p class="muted profile-intro">Manage the details associated with your account.</p>
       <div class="profile-settings-grid">
-        <section class="card profile-settings-card"><h3>Personal information</h3><p class="muted">Your name is visible across yourads. Your email is managed by Clerk.</p>
+        <section class="card profile-settings-card"><h3>Personal information</h3><p class="muted">Your name is visible across youradds. Your email is managed by Clerk.</p>
           <form id="profile-name-form" class="stack"><label for="profile-name">Name<input id="profile-name" name="name" value="${esc(fullName)}" maxlength="80" autocomplete="name" required></label>
             <div class="profile-email"><span class="muted">Email address</span><strong>${esc(email || 'No primary email')}</strong></div>
             <p class="profile-status" id="profile-name-status" role="status" aria-live="polite"></p><button class="pri">Save changes</button></form>
@@ -522,7 +592,7 @@ function showAuth() {
     mode = screen;
     const heading = stage === 'verify' ? 'Verify your email' : stage === 'device' ? 'Verify your sign-in' : ({ signin: 'Welcome back', signup: 'Create your account', reset: 'Reset your password', account: 'Your account', callback: 'Finishing sign in', loading: 'Connecting securely' }[screen] || 'Sign in');
     const form = (screen === 'signin' || screen === 'signup') && stage === 'form';
-    el.innerHTML = `<div class="card authbox${screen === 'callback' ? ' callback-card' : ''}"${screen === 'callback' ? ' data-state="loading" aria-busy="true"' : ''}>${screen === 'callback' ? '' : `<h2>${heading}</h2>`}${form ? '<p class="muted">Use yourads securely with email or Google.</p>' : ''}
+    el.innerHTML = `<div class="card authbox${screen === 'callback' ? ' callback-card' : ''}"${screen === 'callback' ? ' data-state="loading" aria-busy="true"' : ''}>${screen === 'callback' ? '' : `<h2>${heading}</h2>`}${form ? '<p class="muted">Use youradds securely with email or Google.</p>' : ''}
       ${form ? `<button type="button" id="google" class="google-signin"><img src="https://developers.google.com/static/identity/images/g-logo.png" alt="" width="20" height="20">Continue with Google</button><p class="auth-divider"><span>OR</span></p>` : ''}
       <p class="toast" id="autherr" role="alert" aria-live="polite"></p>
       ${screen === 'signin' ? `<form id="authf" class="stack"><label>Email<input name="email" type="email" required autocomplete="email"></label><label>Password<input name="password" type="password" required autocomplete="current-password"></label><button class="pri">Sign in</button><a class="forgot-password" href="${L('/forgot-password')}">Forgot password?</a></form><p class="muted">New here? <a href="${L('/sign-up')}">Create an account</a></p>` : ''}
@@ -531,7 +601,7 @@ function showAuth() {
       ${screen === 'signin' && stage === 'device' ? `<form id="devicef" class="stack"><p>Enter the verification code sent to your email.</p><label>Email verification code<input name="code" inputmode="numeric" autocomplete="one-time-code" required></label><button class="pri">Verify device</button><button type="button" id="resend">Send a new code</button></form>` : ''}
       ${screen === 'reset' ? `<form id="resetf" class="stack"><label>Email<input name="email" type="email" required autocomplete="email" value="${esc(email)}"></label>${stage !== 'form' ? `<label>Verification code<input name="code" inputmode="numeric" autocomplete="one-time-code" required></label><label>New password<input name="password" type="password" minlength="8" autocomplete="new-password" required></label><label>Confirm new password<input name="confirmPassword" type="password" minlength="8" autocomplete="new-password" required></label>` : ''}<button class="pri">${stage === 'form' ? 'Send reset code' : 'Reset password'}</button></form><a href="${L('/sign-in')}">Back to sign in</a>` : ''}
       ${screen === 'account' ? `<p>${esc(window.__youradsMe?.email || '')}</p><form id="passwordf" class="stack"><label>Current password<input name="current" type="password" autocomplete="current-password" required></label><label>New password<input name="next" type="password" minlength="8" autocomplete="new-password" required></label><button class="pri">Update password</button></form><button id="signout">Sign out</button>` : ''}
-      ${screen === 'callback' ? `<div class="callback-brand" aria-label="yourads">your<span>ads</span></div><div class="callback-icon" aria-hidden="true"><span class="callback-spinner"></span><svg class="callback-check" viewBox="0 0 24 24" fill="none"><path d="m5 12.5 4.5 4L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div><p class="callback-eyebrow">SECURE SIGN-IN</p><h2 id="callback-title">Taking you back to yourads</h2><p class="callback-message" id="callback-message" aria-live="polite">Confirming your Google account and setting up your session.</p><p class="callback-detail">This usually takes just a moment. You can keep this page open.</p><div class="callback-error" id="callback-error" role="alert" aria-live="assertive"></div><div class="callback-actions" id="callback-actions" hidden><button type="button" id="retry" class="pri">Try Google sign-in again</button><a href="${L('/sign-in')}">Return to sign in</a></div>` : ''}
+      ${screen === 'callback' ? `<div class="callback-brand" aria-label="youradds">your<span>adds</span></div><div class="callback-icon" aria-hidden="true"><span class="callback-spinner"></span><svg class="callback-check" viewBox="0 0 24 24" fill="none"><path d="m5 12.5 4.5 4L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div><p class="callback-eyebrow">SECURE SIGN-IN</p><h2 id="callback-title">Taking you back to youradds</h2><p class="callback-message" id="callback-message" aria-live="polite">Confirming your Google account and setting up your session.</p><p class="callback-detail">This usually takes just a moment. You can keep this page open.</p><div class="callback-error" id="callback-error" role="alert" aria-live="assertive"></div><div class="callback-actions" id="callback-actions" hidden><button type="button" id="retry" class="pri">Try Google sign-in again</button><a href="${L('/sign-in')}">Return to sign in</a></div>` : ''}
       </div>`;
     if (screen === 'loading') return;
     const google = $('#google', el); if (google) google.onclick = async () => { if (busy) return; if (mode === 'signup' && !$('#authf [name="terms"]', el)?.checked) { error(t('Please accept the Terms of Service and Privacy Policy to create an account.')); $('#authf [name="terms"]', el)?.focus(); return; } busy = true; authButton(google, true); try { await auth.google({ continueSignUp: mode === 'signup' }); } catch (x) { busy = false; authButton(google, false); error(x.message); } };
@@ -563,7 +633,7 @@ function showAuth() {
     };
     const password = $('#passwordf', el); if (password) password.onsubmit = async e => { e.preventDefault(); if (busy) return; busy = true; const b = $('button', password); authButton(b, true); try { await auth.updatePassword(new FormData(password).get('current'), new FormData(password).get('next')); password.reset(); error(t('Password updated.')); } catch (x) { error(x.message); } finally { busy = false; authButton(b, false); } };
     const signout = $('#signout', el); if (signout) signout.onclick = async () => { authButton(signout, true); try { await auth.signOut(); location.replace(L('/sign-in')); } catch (x) { authButton(signout, false); error(x.message); } };
-  const retry = $('#retry', el); if (retry) retry.onclick = async () => { const card = $('.callback-card', el); card.dataset.state = 'loading'; card.setAttribute('aria-busy', 'true'); $('#callback-title', el).textContent = 'Taking you back to yourads'; $('#callback-message', el).textContent = 'Confirming your Google account and setting up your session.'; $('#callback-error', el).textContent = ''; $('#callback-actions', el).hidden = true; authButton(retry, true); try { await auth.google(); } catch (x) { card.dataset.state = 'error'; card.setAttribute('aria-busy', 'false'); $('#callback-title', el).textContent = 'We couldn’t finish sign-in'; $('#callback-message', el).textContent = 'Your Google account wasn’t connected to yourads.'; $('#callback-error', el).textContent = x.message || 'Please try again.'; $('#callback-actions', el).hidden = false; authButton(retry, false); } };
+  const retry = $('#retry', el); if (retry) retry.onclick = async () => { const card = $('.callback-card', el); card.dataset.state = 'loading'; card.setAttribute('aria-busy', 'true'); $('#callback-title', el).textContent = 'Taking you back to youradds'; $('#callback-message', el).textContent = 'Confirming your Google account and setting up your session.'; $('#callback-error', el).textContent = ''; $('#callback-actions', el).hidden = true; authButton(retry, true); try { await auth.google(); } catch (x) { card.dataset.state = 'error'; card.setAttribute('aria-busy', 'false'); $('#callback-title', el).textContent = 'We couldn’t finish sign-in'; $('#callback-message', el).textContent = 'Your Google account wasn’t connected to youradds.'; $('#callback-error', el).textContent = x.message || 'Please try again.'; $('#callback-actions', el).hidden = false; authButton(retry, false); } };
   };
   async function callback() {
     render('callback');
@@ -572,7 +642,7 @@ function showAuth() {
       card.dataset.state = 'error';
       card.setAttribute('aria-busy', 'false');
       $('#callback-title', el).textContent = 'We couldn’t finish sign-in';
-      $('#callback-message', el).textContent = 'Your Google account wasn’t connected to yourads.';
+      $('#callback-message', el).textContent = 'Your Google account wasn’t connected to youradds.';
       $('#callback-error', el).textContent = message;
       $('#callback-actions', el).hidden = false;
     };
@@ -599,6 +669,8 @@ async function boot() {
   try { await auth.init(); if (!await auth.token()) return showAuth(); me = await api('/auth/me'); }
   catch (e) { showAuth(); return null; }
   window.__youradsMe = me;
+  try { currency = (await api('/health')).currency || currency; } catch {}
+  try { const r = await api('/brand'); brandCache = r.brand && r.brand.completed ? r.brand : null; } catch {}
   if (appPath.startsWith('/sign-') || appPath === '/forgot-password') location.replace(L('/'));
   document.body.classList.remove('anon');
   syncProfileIdentity(auth.clerk?.user, me);
@@ -617,7 +689,8 @@ async function enterAuthPage() {
 }
 
 async function route() {
-  const name = (location.hash.slice(1) || 'dashboard');
+  let name = (location.hash.slice(1) || 'dashboard');
+  if (!brandCache && !['brand', 'connections', 'profile'].includes(name)) { name = 'brand'; history.replaceState(null, '', '#brand'); }   // first step for every account
   document.querySelectorAll('nav a').forEach(a => a.classList.toggle('on', a.hash === '#' + name));
   const el = $('#view'); el.onclick = null; el.innerHTML = '<p class="muted">Loading…</p>';
   try { await (views[name] || views.dashboard)(el); el.querySelectorAll('select[name=language]').forEach(sel => { if ([...sel.options].some(o => o.value === lang)) sel.value = lang; }); }

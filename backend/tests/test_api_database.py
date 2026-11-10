@@ -35,6 +35,9 @@ class ApiDatabaseTests(DatabaseTestCase):
         token = request.headers.get("authorization", "").removeprefix("Bearer ")
         if not token and request.method in ("GET", "HEAD"):
             token = request.cookies.get("__session", "")
+        if not token:
+            from fastapi import HTTPException
+            raise HTTPException(401, "not authenticated")      # like the real verifier
         return {"sub": token, "sid": "test-session", "iss": "https://example.clerk.accounts.dev", "sts": "active"}
 
     def use(self, subject):
@@ -56,6 +59,28 @@ class ApiDatabaseTests(DatabaseTestCase):
         self.assertEqual(self.client.post(f"/api/campaigns/{cid}/status?status=paused").status_code, 404)
         dashboard = self.client.get("/api/dashboard").json()
         self.assertEqual(set(dashboard), {"totals", "daily", "by_platform", "has_demo"})
+
+    def test_brand_roundtrip_completion_isolation_and_generator_defaults(self):
+        self.assertIsNone(self.client.get("/api/brand").json()["brand"])
+        partial = self.client.put("/api/brand", json={"name": "Café La Montaña"}).json()
+        self.assertFalse(partial["completed"])
+        full = {"name": "Café La Montaña", "ideal_customer": "Mujeres 25-45 en Medellín", "tone": "cercano",
+                "palette": ["#7A4A2B"], "limits": "no hablar de la competencia",
+                "products": [{"name": "Café 500 g", "description": "Grano de origen", "price": "$38.000"}, {"name": ""}],
+                "reviews": [{"name": "Ana", "text": "Delicioso"}, {"name": "", "text": "sin nombre"}]}
+        saved = self.client.put("/api/brand", json=full).json()
+        self.assertTrue(saved["completed"])
+        self.assertEqual(saved["palette"], ["#7a4a2b"])
+        self.assertEqual([p["name"] for p in saved["products"]], ["Café 500 g"])      # blank rows dropped
+        self.assertEqual(len(saved["reviews"]), 1)
+        self.assertEqual(self.client.put("/api/brand", json={**full, "palette": ["rojo"]}).status_code, 422)
+        self.use("user_two")
+        self.assertIsNone(self.client.get("/api/brand").json()["brand"])              # per account
+        self.assertEqual(self.client.post("/api/ai/copy", json={"platform": "meta"}).status_code, 400)   # no brand, no product
+        self.use("user_one")
+        copy = self.client.post("/api/ai/copy", json={"platform": "meta", "n": 2})     # brand fills product/audience/language
+        self.assertEqual(copy.status_code, 200)
+        self.assertIn("Café 500 g", copy.json()["variants"][0]["headline"])
 
     def test_credentials_mask_settings_and_whatsapp_attribution(self):
         from app import whatsapp

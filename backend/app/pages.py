@@ -6,13 +6,14 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 UI_LANGS = ("en", "es")
+DEFAULT_LANG = "es"   # visitors with no saved choice and no matching Accept-Language
 APP_PAGES = ("", "sign-in", "sign-up", "forgot-password", "sso-callback", "account")   # served by the SPA shell
 STATIC_PAGES = ("about", "contact", "privacy", "terms")                                  # frontend/<lang>/<page>/index.html
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
 
 
 def preferred_lang(request: Request) -> str:
-    """Language for un-prefixed URLs: the visitor's saved choice, else the browser's Accept-Language, else English."""
+    """Language for un-prefixed URLs: the visitor's saved choice, else the browser's Accept-Language, else Spanish."""
     saved = request.cookies.get("lang", "")
     if saved in UI_LANGS:
         return saved
@@ -23,7 +24,7 @@ def preferred_lang(request: Request) -> str:
             ranked.append((-float(q or 1), tag.strip().lower()[:2]))
         except ValueError:
             continue
-    return next((tag for _, tag in sorted(ranked) if tag in UI_LANGS), "en")
+    return next((tag for _, tag in sorted(ranked) if tag in UI_LANGS), DEFAULT_LANG)
 
 
 def _shell(lang: str, frontend: Path):
