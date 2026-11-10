@@ -36,7 +36,7 @@ async def lifespan(app):
         await asyncio.to_thread(dispose_engine)
 
 
-app = FastAPI(title="yourads - open-source AI ads manager", lifespan=lifespan)
+app = FastAPI(title="youradds - open-source AI ads manager", lifespan=lifespan)
 app.include_router(auth.router)
 app.include_router(creds.router)
 app.include_router(brand.router)
@@ -48,6 +48,16 @@ app.include_router(cutout.router)
 
 
 pages.register(app)
+
+
+@app.middleware("http")
+async def revalidate_static(request, call_next):
+    """Pages, scripts and styles carry no cache lifetime of their own; without this browsers reuse old copies for
+    hours after a deploy (stale app.js showed the dashboard for new screens). 'no-cache' still allows 304 via ETag."""
+    response = await call_next(request)
+    if not request.url.path.startswith("/api/") and "cache-control" not in response.headers:
+        response.headers["Cache-Control"] = "no-cache"
+    return response
 
 
 Platform = Literal["meta", "tiktok", "google"]

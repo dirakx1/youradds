@@ -29,6 +29,8 @@ def preferred_lang(request: Request) -> str:
 
 def _shell(lang: str, frontend: Path):
     html = (frontend / "index.html").read_text(encoding="utf-8").replace('<html lang="en">', f'<html lang="{lang}">', 1)
+    if lang == "es":
+        html = html.replace("<title>youradds – AI Ads Manager</title>", "<title>youradds – Gestor de anuncios con IA</title>", 1)
     return HTMLResponse(html, headers={"Content-Language": lang, "Cache-Control": "no-cache"})
 
 

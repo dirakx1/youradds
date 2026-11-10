@@ -1,4 +1,4 @@
-import { L, appPath } from './i18n.js?v=i18n-1';
+import { L, appPath } from './i18n.js?v=brand-1';
 
 const SDK_VERSION = '6.40.1';
 let initPromise;
