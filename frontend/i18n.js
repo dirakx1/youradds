@@ -31,7 +31,7 @@ const ES = {
   'Name': 'Nombre', 'Objective': 'Objetivo', 'Daily budget ($)': 'Presupuesto diario ($)', 'Daily budget': 'Presupuesto diario',
   'My brand': 'Mi marca', 'Using your brand': 'Usando tu marca', 'Edit': 'Editar', 'Ideal customer': 'Cliente ideal', 'Tone': 'Tono', 'Products': 'Productos',
   'Every creative, video, copy and WhatsApp reply now uses this. You never have to enter it again.': 'Cada creatividad, video, texto y respuesta de WhatsApp usa esto. No tendrás que escribirlo de nuevo.',
-  'Create my first creatives': 'Crear mis primeras creatividades', 'Edit my brand': 'Editar mi marca', 'Back': 'Atrás', 'Finish': 'Terminar', 'Next': 'Siguiente',
+  'Create my first creatives': 'Crear mis primeras creatividades', 'Edit my brand': 'Editar mi marca', 'Back': 'Atrás', 'Finish': 'Terminar', 'Next': 'Siguiente', 'Your brand': 'Tu marca', 'Buy now': 'Compra ya', 'Color': 'Color', 'Remove': 'Quitar', 'Add color': 'Agregar color', 'Pick at least one color, or skip this step.': 'Elige al menos un color, o salta este paso.',
   'Add at least your business name, one product and your ideal customer.': 'Agrega al menos el nombre de tu negocio, un producto y tu cliente ideal.',
  'Headline': 'Titular',
   'Landing URL': 'URL de destino', 'Create campaign': 'Crear campaña', 'Status': 'Estado', 'Budget/day': 'Presupuesto/día',

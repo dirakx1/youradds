@@ -31,7 +31,7 @@ INTERVIEW = [
     ("objections", "¿Qué dudas o excusas ponen tus clientes para no comprar?", "Ej.: “Es caro”, “no sé si llega a mi ciudad”."),
     ("reviews", "¿Qué reseñas reales te han dejado? Una por línea: nombre: comentario. Solo reales, nunca inventadas.", "Puedes dejarlo vacío."),
     ("limits", "¿Qué nunca debemos decir o mostrar en tus anuncios?", "Ej.: no prometer resultados médicos, no hablar de la competencia."),
-    ("palette", "¿Cuáles son los colores de tu marca? Hasta tres, en formato #RRGGBB separados por coma.", "Ej.: #7A4A2B, #F3E9DC, #D9822B"),
+    ("palette", "¿Cuáles son los colores de tu marca? Elige hasta tres con la paleta.", ""),
 ]
 
 

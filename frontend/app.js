@@ -21,6 +21,37 @@ const brandParse = {
   palette: s => (s.match(/#[0-9a-fA-F]{6}/g) || []).slice(0, 3),
 };
 
+/** Brand colour picker: up to three colours, each with the native colour chooser and a hex box. Edits ``cols`` in place.
+ *  Colour changes update the swatch and preview without re-rendering, so the browser's chooser stays open. */
+function palettePicker(box, cols) {
+  const DEFAULTS = ['#7a4a2b', '#f3e9dc', '#d9822b'], HEX = /^#[0-9a-fA-F]{6}$/;
+  const preview = () => cols.length
+    ? `<div class="pal-preview" style="background:linear-gradient(135deg,${esc(cols[0])},${esc(cols[0])} 55%,color-mix(in srgb,${esc(cols[0])} 35%,#000))"><b>${t('Your brand')}</b><span style="background:${esc(cols[2] || cols[1] || '#ffcd5a')}">${t('Buy now')}</span></div>`
+    : `<p class="muted">${t('Pick at least one color, or skip this step.')}</p>`;
+  const draw = () => {
+    box.innerHTML = `<div class="pal-row">${cols.map((c, n) => `<div class="swatch">
+        <input type="color" value="${esc(c)}" data-c="${n}" aria-label="${t('Color')} ${n + 1}">
+        <input class="hex" value="${esc(c)}" maxlength="7" data-h="${n}" spellcheck="false" aria-label="${t('Color')} ${n + 1} hex">
+        <button type="button" data-rm="${n}" aria-label="${t('Remove')}">✕</button></div>`).join('')}
+      ${cols.length < 3 ? `<button type="button" class="addcol">+ ${t('Add color')}</button>` : ''}</div><div id="pal-prev">${preview()}</div>`;
+  };
+  box.oninput = e => {
+    const n = e.target.dataset.c; if (n === undefined) return;
+    cols[n] = e.target.value; $(`[data-h="${n}"]`, box).value = e.target.value; $('#pal-prev', box).innerHTML = preview();
+  };
+  box.onchange = e => {
+    const n = e.target.dataset.h; if (n === undefined) return;
+    let v = e.target.value.trim(); if (v && v[0] !== '#') v = '#' + v;
+    if (HEX.test(v)) { cols[n] = v.toLowerCase(); $(`[data-c="${n}"]`, box).value = cols[n]; $('#pal-prev', box).innerHTML = preview(); }
+    e.target.value = cols[n];
+  };
+  box.onclick = e => {
+    const rm = e.target.closest('[data-rm]'); if (rm) { cols.splice(+rm.dataset.rm, 1); draw(); return; }
+    if (e.target.closest('.addcol')) { cols.push(DEFAULTS.find(d => !cols.includes(d)) || DEFAULTS[cols.length]); draw(); }
+  };
+  draw();
+}
+
 /** Forms that used to ask for product / audience / tone / language / theme read them from the brand instead:
  *  hide and disable those fields (disabled fields are not submitted, so the server fills them) and make the product a list. */
 function applyBrand(form) {
@@ -155,16 +186,23 @@ const views = {
       <button class="pri" id="go-creatives">${t('Create my first creatives')}</button> <button id="edit">${t('Edit my brand')}</button></div>`;
     const step = i => {
       const q = interview[i], last = i === interview.length - 1;
+      const isPalette = q.field === 'palette';
+      const cols = isPalette ? [...(state.palette || [])].slice(0, 3) : [];
+      const field = isPalette
+        ? `<div><b>${esc(q.question)}</b><div id="pal" class="pal"></div></div>`
+        : `<label><b>${esc(q.question)}</b>
+            <textarea name="a" rows="${['products', 'reviews', 'story'].includes(q.field) ? 6 : 3}" placeholder="${esc(q.hint)}">${esc(val(q.field))}</textarea></label>`;
       el.innerHTML = `<h2>${t('My brand')} <span class="muted">· ${i + 1}/${interview.length}</span></h2>
         <div class="card"><div style="height:6px;background:var(--line);border-radius:3px;margin-bottom:14px"><div style="height:6px;border-radius:3px;background:var(--acc);width:${Math.round((i + 1) / interview.length * 100)}%"></div></div>
-          <form id="q" class="stack"><label><b>${esc(q.question)}</b>
-            <textarea name="a" rows="${['products', 'reviews', 'story'].includes(q.field) ? 6 : 3}" placeholder="${esc(q.hint)}">${esc(val(q.field))}</textarea></label>
+          <form id="q" class="stack">${field}
           <div id="err" class="toast"></div>
           <div style="display:flex;gap:8px">${i ? `<button type="button" id="back">${t('Back')}</button>` : ''}<button class="pri">${last ? t('Finish') : t('Next')}</button></div></form></div>`;
       $('#back', el)?.addEventListener('click', () => step(i - 1));
+      if (isPalette) palettePicker($('#pal', el), cols);
       $('#q', el).onsubmit = async e => {
-        e.preventDefault(); const raw = new FormData(e.target).get('a').trim();
-        state[q.field] = brandParse[q.field] ? brandParse[q.field](raw) : raw;
+        e.preventDefault();
+        if (isPalette) state.palette = cols.map(c => c.toLowerCase());
+        else { const raw = new FormData(e.target).get('a').trim(); state[q.field] = brandParse[q.field] ? brandParse[q.field](raw) : raw; }
         if (!last) return step(i + 1);
         try {
           const r = await api('/brand', { method: 'PUT', body: Object.fromEntries(['name', 'story', 'tone', 'language', 'currency', 'palette', 'fonts', 'ideal_customer', 'objections', 'limits', 'products', 'reviews'].map(k => [k, state[k] ?? (brandParse[k] ? [] : '')])) });
