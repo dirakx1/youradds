@@ -1,5 +1,5 @@
-import { auth } from './auth.js?v=brand-7';
-import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-7';
+import { auth } from './auth.js?v=brand-8';
+import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-8';
 
 const authPollers = new Set();
 
@@ -227,7 +227,7 @@ async function goalPlanner(box, onCreated) {
           <div class="muted">${esc(t(OBJ[c.objective] || c.objective))} · ${money(c.daily_budget)} ${t('per day')}</div>
           <div>${t('Who sees it')}: ${esc(c.audience)}</div><div>${t('Ad')}: “${esc(c.headline)}”</div><small class="muted">${esc(t(c.why))}</small></div>`).join('')}</div>
         <p class="muted">${t('Total')}: ${money(r.campaigns.reduce((a, c) => a + c.daily_budget, 0))} ${t('per day')}</p>
-        <button class="pri" id="mkplan">${t('Create these campaigns')}</button> <span class="muted msgline" id="plannote"></span>`;
+        <div class="plan-actions"><button class="pri" id="mkplan">${t('Create these campaigns')}</button><span class="muted msgline" id="plannote"></span></div>`;
       $('#mkplan', box).onclick = async ev => {
         ev.target.disabled = true; const pn = $('#plannote', box); let sync = '';
         try { for (const c of r.campaigns) { const { why, ...body } = c; const x = await api('/campaigns', { method: 'POST', body }); if (x.sync_error) sync = x.sync_error; } }
@@ -436,7 +436,7 @@ const views = {
         if (r.warnings && r.warnings.length) alert(r.warnings.join('\n'));
       } catch (x) { pn.className = 'toast msgline'; pn.textContent = t('Campaigns created, but creatives failed: {e}', { e: x.message }); }
       await refresh();
-      pn.insertAdjacentHTML('beforeend', ` <button type="button" id="mkvid">${t('Also make a video')}</button>`);
+      pn.insertAdjacentHTML('beforebegin', `<button type="button" id="mkvid">${t('Also make a video')}</button>`);
       $('#mkvid', el).onclick = () => { const d = $('#vdet', el), f = $('#vf', el); d.open = true; const p = f.querySelector('[name=product]'); if (p && v.product) p.value = v.product; d.scrollIntoView({ behavior: 'smooth' }); };
     });
     await Promise.all([refresh(), videosPanel($('#sp-vid', el)), copyPanel($('#sp-copy', el))]);
