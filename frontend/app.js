@@ -1,5 +1,5 @@
-import { auth } from './auth.js?v=brand-3';
-import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-3';
+import { auth } from './auth.js?v=brand-4';
+import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-4';
 
 const authPollers = new Set();
 
@@ -129,13 +129,23 @@ const views = {
   async dashboard(el) {
     const d = await api('/dashboard'), tot = d.totals;
     const kpi = (l, v) => `<div class="card kpi"><small>${l}</small><b>${v}</b></div>`;
-    el.innerHTML = `<h2>Dashboard <span class="muted">· last 14 days</span></h2>
+    const since = new Date(Date.now() - 6 * 864e5), pad = n => String(n).padStart(2, '0');
+    const from = `${since.getFullYear()}-${pad(since.getMonth() + 1)}-${pad(since.getDate())}`;
+    const week = d.daily.filter(r => r.day >= from).reduce((a, r) => ({ spend: a.spend + r.spend, revenue: a.revenue + r.revenue }), { spend: 0, revenue: 0 });
+    const headline = week.spend || week.revenue
+      ? t('This week you spent {spend} and sold {revenue}.', { spend: money(week.spend), revenue: money(week.revenue) })
+      : t('Nothing spent or sold this week yet. Create a campaign to get started.');
+    el.innerHTML = `<h2>Dashboard</h2>
       ${d.has_demo ? `<div class="card">${t('Showing <b>sample data</b> until you connect your own ad accounts. ')}<button id="rmdemo">Remove sample data</button></div>` : ''}
-      <div class="grid">${kpi('Spend', money(tot.spend))}${kpi('Revenue', money(tot.revenue))}${kpi('ROAS', tot.roas.toFixed(2) + 'x')}
-      ${kpi('Conversions', tot.conversions)}${kpi('CTR', tot.ctr.toFixed(2) + '%')}${kpi('CPA', tot.cpa ? money(tot.cpa) : '–')}</div>
-      <div class="card">${lineChart(d.daily, ['spend', 'revenue'], ['#e74c3c', '#2ecc71'])}</div>
-      <div class="card scroll"><table class="rtable"><thead><tr><th>Platform<th>Spend<th>Revenue<th>ROAS<th>Conversions<th>Clicks</tr></thead>
-      ${d.by_platform.map(p => `<tr><td data-label="${t('Platform')}">${pill(p.platform)}<td data-label="${t('Spend')}">${money(p.spend)}<td data-label="${t('Revenue')}">${money(p.revenue)}<td data-label="ROAS">${(p.revenue / p.spend || 0).toFixed(2)}x<td data-label="${t('Conversions')}">${p.conversions}<td data-label="${t('Clicks')}">${p.clicks}`).join('')}</table></div>`;
+      <div class="card summary"><p class="big">${esc(headline)}</p></div>
+      <div class="card"><small class="muted">${t('Spent and sold, last 14 days')}</small>${lineChart(d.daily, ['spend', 'revenue'], ['#e74c3c', '#2ecc71'])}</div>
+      <details class="card adv"><summary>${t('Advanced detail (ROAS, CTR, CPA…)')}</summary>
+        <div class="grid">${kpi('Spend', money(tot.spend))}${kpi('Revenue', money(tot.revenue))}${kpi('ROAS', tot.roas.toFixed(2) + 'x')}
+        ${kpi('Conversions', tot.conversions)}${kpi('CTR', tot.ctr.toFixed(2) + '%')}${kpi('CPA', tot.cpa ? money(tot.cpa) : '–')}</div>
+        <p class="muted">${t('ROAS: revenue per peso spent. CTR: share of people who clicked. CPA: cost per sale.')}</p>
+        <div class="scroll"><table class="rtable"><thead><tr><th>Platform<th>Spend<th>Revenue<th>ROAS<th>Conversions<th>Clicks</tr></thead>
+        ${d.by_platform.map(p => `<tr><td data-label="${t('Platform')}">${pill(p.platform)}<td data-label="${t('Spend')}">${money(p.spend)}<td data-label="${t('Revenue')}">${money(p.revenue)}<td data-label="ROAS">${(p.revenue / p.spend || 0).toFixed(2)}x<td data-label="${t('Conversions')}">${p.conversions}<td data-label="${t('Clicks')}">${p.clicks}`).join('')}</table></div>
+      </details>`;
     const rm = $('#rmdemo', el);
     if (rm) rm.onclick = async () => { if (confirm(t('Delete the sample campaigns? Your real campaigns are kept.'))) { await api('/demo', { method: 'DELETE' }); views.dashboard(el); } };
   },

@@ -111,6 +111,11 @@ const ES = {
   'Where should I move my budget to sell more?': '¿Dónde debería mover mi presupuesto para vender más?',
   'Which platform gives me the best return?': '¿Qué plataforma me da el mejor retorno?',
   'What should I improve first?': '¿Qué debería mejorar primero?',
+  'This week you spent {spend} and sold {revenue}.': 'Esta semana invertiste {spend} y vendiste {revenue}.',
+  'Nothing spent or sold this week yet. Create a campaign to get started.': 'Esta semana aún no has invertido ni vendido. Crea una campaña para empezar.',
+  'Spent and sold, last 14 days': 'Invertido y vendido, últimos 14 días',
+  'Advanced detail (ROAS, CTR, CPA…)': 'Detalle avanzado (ROAS, CTR, CPA…)',
+  'ROAS: revenue per peso spent. CTR: share of people who clicked. CPA: cost per sale.': 'ROAS: ingresos por cada peso invertido. CTR: porcentaje de personas que hicieron clic. CPA: costo por venta.',
   'Which campaign should I scale?': '¿Qué campaña debería escalar?', 'Ask': 'Preguntar', 'Error: {e}': 'Error: {e}',
   // ---- Connections ----
   'These credentials belong to <b>your account only</b>. They are stored encrypted and never shown again after saving - leave a secret blank to keep it.':
