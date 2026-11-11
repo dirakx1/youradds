@@ -114,3 +114,5 @@ select,input,textarea{max-width:100%;min-width:0}
 .swatch button{padding:2px 8px}
 .pal-preview{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:18px;border-radius:12px;color:#fff;font-size:18px}
 .pal-preview span{padding:6px 14px;border-radius:99px;color:#fff;font-size:14px;font-weight:600;text-shadow:0 1px 2px #0006}
+
+.chips{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0}.chip{padding:7px 12px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--tx);font-size:14px;cursor:pointer}.chip:hover{border-color:var(--acc);color:var(--acc)}

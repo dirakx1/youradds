@@ -102,6 +102,15 @@ const ES = {
   'Sale value ($)?': '¿Valor de la venta ($)?', '{n} follow-ups sent': '{n} seguimientos enviados',
   'new': 'nuevo', 'engaged': 'interesado', 'qualified': 'calificado', 'won': 'ganado', 'lost': 'perdido',
   // ---- Copilot ----
+  'Ask about your campaigns in plain words. I use your last 7 days of data and your brand profile.': 'Pregúntame sobre tus campañas con tus propias palabras. Uso tus últimos 7 días de datos y el perfil de tu marca.',
+  'Hi! I can help you decide what to scale, pause or improve. Pick a question below or write your own.': '¡Hola! Te ayudo a decidir qué escalar, pausar o mejorar. Elige una pregunta abajo o escribe la tuya.',
+  'Try asking:': 'Prueba preguntar:', 'Thinking…': 'Pensando…', 'Your question': 'Tu pregunta',
+  'e.g. Which campaign should I scale?': 'Ej.: ¿Qué campaña debería escalar?',
+  'Which campaign is losing money and should I pause?': '¿Qué campaña está perdiendo dinero y debería pausar?',
+  'How did my ads perform this week?': '¿Cómo me fue con mis anuncios esta semana?',
+  'Where should I move my budget to sell more?': '¿Dónde debería mover mi presupuesto para vender más?',
+  'Which platform gives me the best return?': '¿Qué plataforma me da el mejor retorno?',
+  'What should I improve first?': '¿Qué debería mejorar primero?',
   'Which campaign should I scale?': '¿Qué campaña debería escalar?', 'Ask': 'Preguntar', 'Error: {e}': 'Error: {e}',
   // ---- Connections ----
   'These credentials belong to <b>your account only</b>. They are stored encrypted and never shown again after saving - leave a secret blank to keep it.':

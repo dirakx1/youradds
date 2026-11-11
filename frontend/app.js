@@ -1,5 +1,5 @@
-import { auth } from './auth.js?v=brand-2';
-import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-2';
+import { auth } from './auth.js?v=brand-3';
+import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-3';
 
 const authPollers = new Set();
 
@@ -438,13 +438,22 @@ const views = {
   },
 
   async chat(el) {
-    el.innerHTML = `<h2>Copilot</h2><div class="card" id="log" style="min-height:200px"></div>
-      <form class="row" id="f" style="grid-template-columns:1fr auto"><input name="q" placeholder="Which campaign should I scale?" required autocomplete="off"><button class="pri">Ask</button></form>`;
-    const log = $('#log'), add = (c, t) => { const d = document.createElement('div'); d.className = 'msg ' + c; d.textContent = t; log.append(d); };
-    $('#f').onsubmit = async e => {
-      e.preventDefault(); const q = e.target.q.value; e.target.q.value = ''; add('u', q);
-      try { add('a', (await api('/chat', { method: 'POST', body: { question: q } })).answer); } catch (x) { add('a', t('Error: {e}', { e: t(x.message) })); }
+    const examples = ['Which campaign should I scale?', 'Which campaign is losing money and should I pause?', 'How did my ads perform this week?',
+      'Where should I move my budget to sell more?', 'Which platform gives me the best return?', 'What should I improve first?'];
+    el.innerHTML = `<h2>Copilot</h2>
+      <p class="muted">${t('Ask about your campaigns in plain words. I use your last 7 days of data and your brand profile.')}</p>
+      <div class="card" id="log" style="min-height:200px"><div class="msg a" id="hello">${esc(t('Hi! I can help you decide what to scale, pause or improve. Pick a question below or write your own.'))}</div></div>
+      <div class="chips" id="chips"><span class="muted">${t('Try asking:')}</span>${examples.map(q => `<button type="button" class="chip">${esc(t(q))}</button>`).join('')}</div>
+      <form class="row" id="f" style="grid-template-columns:1fr auto"><input name="q" placeholder="${esc(t('e.g. Which campaign should I scale?'))}" aria-label="${esc(t('Your question'))}" required autocomplete="off" maxlength="500"><button class="pri">Ask</button></form>`;
+    const log = $('#log'), add = (c, text) => { const d = document.createElement('div'); d.className = 'msg ' + c; d.textContent = text; log.append(d); d.scrollIntoView({ block: 'nearest' }); return d; };
+    const ask = async q => {
+      $('#hello')?.remove(); add('u', q);
+      const wait = add('a', t('Thinking…'));
+      try { wait.textContent = (await api('/chat', { method: 'POST', body: { question: q } })).answer; } catch (x) { wait.textContent = t('Error: {e}', { e: t(x.message) }); }
     };
+    $('#f').onsubmit = e => { e.preventDefault(); const q = e.target.q.value.trim(); if (!q) return; e.target.q.value = ''; ask(q); };
+    el.querySelectorAll('.chip').forEach(c => c.onclick = () => ask(c.textContent));
+    $('#f input').focus();
   },
 
   async connections(el) {
