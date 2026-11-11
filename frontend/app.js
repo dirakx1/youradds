@@ -1,5 +1,5 @@
-import { auth } from './auth.js?v=brand-5';
-import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-5';
+import { auth } from './auth.js?v=brand-6';
+import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-6';
 
 const authPollers = new Set();
 
@@ -125,6 +125,120 @@ async function cutoutButton(form) {
   };
 }
 
+async function creativesPanel(el, refresh) {
+    const [opt, list, camps] = await Promise.all([api('/creatives/options'), api('/creatives'), api('/campaigns')]);
+    const label = { meta: 'Meta', tiktok: 'TikTok', google: 'Google' };
+    const gallery = items => items.map(c => `<div class="card" style="margin:0"><img src="/api/creatives/${c.id}/image" alt="" loading="lazy" style="width:100%;max-height:340px;object-fit:contain;border-radius:8px;background:#000">
+      <p style="margin:8px 0 4px">${pill(c.platform)} <span class="muted">${esc(c.format)} · ${c.width}×${c.height}</span></p>
+      <div style="display:flex;gap:6px;flex-wrap:wrap"><a href="/api/creatives/${c.id}/image?download=true"><button type="button">Download</button></a>
+      <select data-attach="${c.id}"><option value="">Attach to campaign…</option>${camps.filter(k => k.platform === c.platform).map(k => `<option value="${k.id}" ${k.id === c.campaign_id ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}</select>
+      <button type="button" data-del="${c.id}">✕</button></div></div>`).join('');
+    el.innerHTML = `<div id="out" class="grid" style="grid-template-columns:repeat(auto-fill,minmax(240px,1fr))">${gallery(list) || `<p class="muted">${t('No creatives yet. Build a plan above and they appear here.')}</p>`}</div>
+      <details class="card adv"><summary>${t('Create a creative manually (advanced)')}</summary><form id="cf" class="row">
+        <label>Product name<input name="product" required maxlength="80"></label>
+        <label>Description (facts only)<input name="description" maxlength="500" placeholder="What it is, flavor, size, materials…"></label>
+        <label>Audience<input name="audience" maxlength="120"></label>
+        <label>Language<select name="language">${Object.entries(opt.languages).map(([k, v]) => `<option value="${k}">${v}`).join('')}</select></label>
+        <label>Tone<select name="tone"><option>friendly<option>bold<option>professional<option>playful<option>urgent</select></label>
+        <label>Theme<select name="theme">${opt.themes.map(t => `<option>${t}`).join('')}</select></label>
+        <label>Price badge (optional)<input name="price" maxlength="20" placeholder="$119.900 COP"></label>
+        <label>Rating line (optional, must be true)<input name="social_proof" maxlength="50" placeholder="4.8/5 from 1,200 reviews"></label>
+        <label>Product image (PNG, transparent bg works best)<input type="file" name="img" accept="image/png,image/jpeg,image/webp"></label>
+        <label style="grid-column:1/-1">Real customer testimonials (optional, one per line: <code>Name: quote</code>)<textarea name="tests" rows="2" maxlength="600"></textarea></label>
+        <fieldset style="grid-column:1/-1;border:0;padding:0;margin:0"><span class="muted">Platforms</span><br>
+          ${Object.keys(opt.formats).map(p => `<label style="display:inline-block;margin-right:16px;width:auto"><input type="checkbox" name="pf" value="${p}" checked style="display:inline;width:auto"> ${label[p]} <span class="muted">(${Object.values(opt.formats[p]).map(s => s.join('×')).join(', ')})</span></label>`).join('')}</fieldset>
+        <label style="grid-column:1/-1">${opt.scene_available ? `<input type="checkbox" name="scene" style="display:inline;width:auto"> AI scene backgrounds <span class="muted">(Higgsfield · a few cents per image, capped at $${opt.scene_cost_cap_usd}/run)</span>` : `<span class="muted">${t('AI scene backgrounds: add your Higgsfield API key on the <a href="#connections">Connections</a> page to enable')}</span>`}
+          <input name="scene_hint" maxlength="200" placeholder="Scene idea, e.g. cozy bedroom at night (don't name the product)"></label>
+        <button class="pri">Generate creatives</button></form>
+        <p class="muted" style="margin:10px 0 0">Reviews, ratings and customer counts are never invented — they only appear if you enter them. 9:16 formats keep text inside platform safe zones.</p>
+        <div id="cerr" class="toast"></div></details>`;
+    cutoutButton($('#cf', el)); applyBrand($('#cf', el));
+    const file = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
+    $('#cf', el).onsubmit = async e => {
+      e.preventDefault(); const fd = new FormData(e.target), btn = $('button.pri', e.target); $('#cerr', el).textContent = '';
+      const platforms = fd.getAll('pf'); if (!platforms.length) return $('#cerr', el).textContent = t('Pick at least one platform');
+      const testimonials = (fd.get('tests') || '').split('\n').map(l => l.trim()).filter(l => l.includes(':'))
+        .map(l => ({ name: l.slice(0, l.indexOf(':')).trim(), text: l.slice(l.indexOf(':') + 1).trim() }));
+      const body = { platforms, testimonials };
+      for (const k of ['product', 'description', 'audience', 'language', 'tone', 'theme', 'price', 'social_proof']) body[k] = fd.get(k) || '';
+      const f = fd.get('img'); if (f && f.size) { if (f.size > 8e6) return $('#cerr', el).textContent = t('Image over 8MB'); body.product_image = await file(f); }
+      body.scene = fd.get('scene') === 'on'; body.scene_hint = fd.get('scene_hint') || '';
+      btn.disabled = true; btn.textContent = t('Generating…');
+      try { const r = await api('/creatives/generate', { method: 'POST', body }); if (r.warnings.length || r.scene_cost_usd) alert((r.scene_cost_usd ? t('Scene cost: ${c}', { c: r.scene_cost_usd }) + '\\n' : '') + r.warnings.join('\\n')); refresh(); }
+      catch (x) { $('#cerr', el).textContent = x.message; btn.disabled = false; btn.textContent = t('Generate creatives'); }
+    };
+    el.onchange = async e => {
+      const id = e.target.dataset.attach; if (!id || !e.target.value) return;
+      await api(`/creatives/${id}/attach`, { method: 'POST', body: { campaign_id: +e.target.value } }); alert(t('Attached – campaign text updated'));
+    };
+    el.onclick = async e => {
+      const b = e.target.closest('button[data-del]'); if (!b || !confirm(t('Delete creative?'))) return;
+      await api('/creatives/' + b.dataset.del, { method: 'DELETE' }); refresh();
+    };
+}
+
+async function copyPanel(el) {
+    const { languages } = await api('/creatives/options');
+    el.innerHTML = `<details class="card adv"><summary>${t('Write ad copy (advanced)')}</summary><form class="row" id="sf">
+        <label>Platform<select name="platform"><option value="meta">Meta<option value="tiktok">TikTok<option value="google">Google</select></label>
+        <label>Product<input name="product" required placeholder="Organic running shoes"></label>
+        <label>Audience<input name="audience" value="runners 25-45"></label>
+        <label>Tone<select name="tone"><option>friendly<option>bold<option>professional<option>playful<option>urgent</select></label>
+        <label>Language<select name="language">${Object.entries(languages).map(([k, v]) => `<option value="${k}">${v}`).join('')}</select></label>
+        <button class="pri">Generate</button></form><div id="sout"></div></details>`;
+    applyBrand($('#sf', el));
+    $('#sf', el).onsubmit = async e => {
+      e.preventDefault(); const btn = $('button', e.target); btn.disabled = true;
+      try {
+        const r = await api('/ai/copy', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) });
+        $('#sout', el).innerHTML = (r.llm ? '' : '<p class="muted">Template mode – set ANTHROPIC_API_KEY for LLM copy.</p>') +
+          r.variants.map(v => `<div class="card"><span class="muted">${esc(v.angle)}</span><h3>${esc(v.headline)}</h3><p>${esc(v.body)}</p><b>[${esc(v.cta)}]</b></div>`).join('');
+      } catch (x) { $('#sout', el).innerHTML = `<p class="toast">${esc(x.message)}</p>`; }
+      btn.disabled = false;
+    };
+}
+
+async function goalPlanner(box, onCreated) {
+    const GOALS = [['awareness', '👋', 'I want people to know me', 'Reach new people who could like your brand.'],
+      ['sales', '🛒', 'I want people to buy', 'Get new customers and remind recent visitors.'],
+      ['recover', '🔁', 'Win back those who did not buy', 'Talk again to people who showed interest and left.']];
+    const OBJ = { awareness: 'Be known', traffic: 'Visits to your page', sales: 'Sales', leads: 'Contacts', whatsapp: 'WhatsApp chats' };
+    const prods = brandCache && brandCache.completed ? brandCache.products.map(x => x.name) : [];
+  box.innerHTML = `<div class="card"><h3 style="margin-top:0">${t('What do you want to achieve?')}</h3>
+        <p class="muted">${t('Pick a goal and the app builds the campaign structure for you. You review it before anything is created.')}</p>
+        <form id="goalf" class="stack">
+          <div class="goals">${GOALS.map(([k, ic, ti, de], i) => `<label class="goal"><input type="radio" name="goal" value="${k}"${i === 1 ? ' checked' : ''}><span class="goal-ic">${ic}</span><b>${t(ti)}</b><small class="muted">${t(de)}</small></label>`).join('')}</div>
+          <div class="row">
+            <label>${t('Platform')}<select name="platform"><option value="meta">Meta (Facebook + Instagram)<option value="tiktok">TikTok<option value="google">Google</select></label>
+            <label>${t('Product')}${prods.length ? `<select name="product">${prods.map(n => `<option>${esc(n)}`).join('')}</select>` : `<input name="product" required>`}</label>
+            <label>${t('Total daily budget')} (${currency})<input name="daily_budget" type="number" min="1" step="any" value="${currency === 'COP' ? 50000 : 20}"></label>
+            <label>${t('Page or store link (optional)')}<input name="landing_url" type="url" placeholder="https://"></label>
+          </div>
+          <button class="pri">${t('Build my plan')}</button> <span class="muted msgline" id="goalnote"></span></form>
+        <div id="plan"></div></div>`;
+    const gf = $('#goalf', box), plan = $('#plan', box), gnote = $('#goalnote', box);
+    gf.onsubmit = async e => {
+      e.preventDefault(); gnote.className = 'muted msgline'; gnote.textContent = t('Building your plan…'); plan.innerHTML = '';
+      const v = Object.fromEntries(new FormData(gf)); v.daily_budget = +v.daily_budget;
+      let r; try { r = await api('/campaigns/plan', { method: 'POST', body: v }); } catch (x) { gnote.className = 'toast msgline'; gnote.textContent = x.message; return; }
+      gnote.textContent = '';
+      plan.innerHTML = `<h3>${t('Your plan')}</h3><p>${esc(t(r.summary))}</p>
+        <div class="plan">${r.campaigns.map(c => `<div class="plan-item"><b>${esc(c.name)}</b>
+          <div class="muted">${esc(t(OBJ[c.objective] || c.objective))} · ${money(c.daily_budget)} ${t('per day')}</div>
+          <div>${t('Who sees it')}: ${esc(c.audience)}</div><div>${t('Ad')}: “${esc(c.headline)}”</div><small class="muted">${esc(t(c.why))}</small></div>`).join('')}</div>
+        <p class="muted">${t('Total')}: ${money(r.campaigns.reduce((a, c) => a + c.daily_budget, 0))} ${t('per day')}</p>
+        <button class="pri" id="mkplan">${t('Create these campaigns')}</button> <span class="muted msgline" id="plannote"></span>`;
+      $('#mkplan', box).onclick = async ev => {
+        ev.target.disabled = true; const pn = $('#plannote', box); let sync = '';
+        try { for (const c of r.campaigns) { const { why, ...body } = c; const x = await api('/campaigns', { method: 'POST', body }); if (x.sync_error) sync = x.sync_error; } }
+        catch (x) { pn.className = 'toast msgline'; pn.textContent = x.message; ev.target.disabled = false; return; }
+        if (sync) alert(t('Saved locally; platform sync failed: {e}', { e: sync }));
+        pn.textContent = t('Campaigns created. Making your creatives…');
+        await onCreated(r, v);
+      };
+    };
+}
+
 const views = {
   async dashboard(el) {
     const d = await api('/dashboard'), tot = d.totals;
@@ -152,24 +266,8 @@ const views = {
 
   async campaigns(el) {
     const rows = await api('/campaigns');
-    const GOALS = [['awareness', '👋', 'I want people to know me', 'Reach new people who could like your brand.'],
-      ['sales', '🛒', 'I want people to buy', 'Get new customers and remind recent visitors.'],
-      ['recover', '🔁', 'Win back those who did not buy', 'Talk again to people who showed interest and left.']];
-    const OBJ = { awareness: 'Be known', traffic: 'Visits to your page', sales: 'Sales', leads: 'Contacts', whatsapp: 'WhatsApp chats' };
-    const prods = brandCache && brandCache.completed ? brandCache.products.map(x => x.name) : [];
     el.innerHTML = `<h2>Campaigns</h2>
-      <div class="card"><h3 style="margin-top:0">${t('What do you want to achieve?')}</h3>
-        <p class="muted">${t('Pick a goal and the app builds the campaign structure for you. You review it before anything is created.')}</p>
-        <form id="goalf" class="stack">
-          <div class="goals">${GOALS.map(([k, ic, ti, de], i) => `<label class="goal"><input type="radio" name="goal" value="${k}"${i === 1 ? ' checked' : ''}><span class="goal-ic">${ic}</span><b>${t(ti)}</b><small class="muted">${t(de)}</small></label>`).join('')}</div>
-          <div class="row">
-            <label>${t('Platform')}<select name="platform"><option value="meta">Meta (Facebook + Instagram)<option value="tiktok">TikTok<option value="google">Google</select></label>
-            <label>${t('Product')}${prods.length ? `<select name="product">${prods.map(n => `<option>${esc(n)}`).join('')}</select>` : `<input name="product" required>`}</label>
-            <label>${t('Total daily budget')} (${currency})<input name="daily_budget" type="number" min="1" step="any" value="${currency === 'COP' ? 50000 : 20}"></label>
-            <label>${t('Page or store link (optional)')}<input name="landing_url" type="url" placeholder="https://"></label>
-          </div>
-          <button class="pri">${t('Build my plan')}</button> <span class="muted msgline" id="goalnote"></span></form>
-        <div id="plan"></div></div>
+      <div class="card"><b>${t('Want new campaigns?')}</b> <span class="muted">${t('Pick a goal in the Studio and the app builds the campaigns and creatives for you.')}</span> <a href="#studio"><button class="pri" type="button">${t('Go to the Studio')}</button></a></div>
       <details class="card adv"><summary>${t('Create a campaign manually (advanced)')}</summary>
       <form class="row" id="f">
         <label>Platform<select name="platform"><option value="meta">Meta<option value="tiktok">TikTok<option value="google">Google</select></label>
@@ -184,26 +282,6 @@ const views = {
         <td data-label="${t('Spend 7d')}">${money(c.spend)}<td data-label="CTR">${c.ctr}%<td data-label="CPA">${c.cpa ? money(c.cpa) : '–'}<td data-label="ROAS">${c.roas}x
         <td data-label=""><button data-t="${c.id}" data-s="${c.status === 'active' ? 'paused' : 'active'}">${c.status === 'active' ? 'Pause' : 'Resume'}</button>
         <button data-d="${c.id}">✕</button>`).join('')}</table></div>`;
-    const gf = $('#goalf'), plan = $('#plan'), gnote = $('#goalnote');
-    gf.onsubmit = async e => {
-      e.preventDefault(); gnote.className = 'muted msgline'; gnote.textContent = t('Building your plan…'); plan.innerHTML = '';
-      const v = Object.fromEntries(new FormData(gf)); v.daily_budget = +v.daily_budget;
-      let r; try { r = await api('/campaigns/plan', { method: 'POST', body: v }); } catch (x) { gnote.className = 'toast msgline'; gnote.textContent = x.message; return; }
-      gnote.textContent = '';
-      plan.innerHTML = `<h3>${t('Your plan')}</h3><p>${esc(t(r.summary))}</p>
-        <div class="plan">${r.campaigns.map(c => `<div class="plan-item"><b>${esc(c.name)}</b>
-          <div class="muted">${esc(t(OBJ[c.objective] || c.objective))} · ${money(c.daily_budget)} ${t('per day')}</div>
-          <div>${t('Who sees it')}: ${esc(c.audience)}</div><div>${t('Ad')}: “${esc(c.headline)}”</div><small class="muted">${esc(t(c.why))}</small></div>`).join('')}</div>
-        <p class="muted">${t('Total')}: ${money(r.campaigns.reduce((a, c) => a + c.daily_budget, 0))} ${t('per day')}</p>
-        <button class="pri" id="mkplan">${t('Create these campaigns')}</button> <span class="muted msgline" id="plannote"></span>`;
-      $('#mkplan').onclick = async ev => {
-        ev.target.disabled = true; const pn = $('#plannote'); let sync = '';
-        try { for (const c of r.campaigns) { const { why, ...body } = c; const x = await api('/campaigns', { method: 'POST', body }); if (x.sync_error) sync = x.sync_error; } }
-        catch (x) { pn.className = 'toast msgline'; pn.textContent = x.message; ev.target.disabled = false; return; }
-        if (sync) alert(t('Saved locally; platform sync failed: {e}', { e: sync }));
-        views.campaigns(el);
-      };
-    };
     $('#f').onsubmit = async e => {
       e.preventDefault();
       const b = Object.fromEntries(new FormData(e.target));
@@ -263,87 +341,27 @@ const views = {
     const done = () => {
       el.innerHTML = `<h2>${t('My brand')}</h2>${summary()}`;
       $('#edit', el).onclick = () => step(0);
-      $('#go-creatives', el).onclick = () => { location.hash = '#creatives'; };
+      $('#go-creatives', el).onclick = () => { location.hash = '#studio'; };
     };
     saved && saved.completed ? done() : step(0);
   },
 
   async studio(el) {
-    const { languages } = await api('/creatives/options');
-    el.innerHTML = `<h2>AI Studio <span class="muted">· ad copy generator</span></h2>
-      <div class="card"><form class="row" id="f">
-        <label>Platform<select name="platform"><option value="meta">Meta<option value="tiktok">TikTok<option value="google">Google</select></label>
-        <label>Product<input name="product" required placeholder="Organic running shoes"></label>
-        <label>Audience<input name="audience" value="runners 25-45"></label>
-        <label>Tone<select name="tone"><option>friendly<option>bold<option>professional<option>playful<option>urgent</select></label>
-        <label>Language<select name="language">${Object.entries(languages).map(([k, v]) => `<option value="${k}">${v}`).join('')}</select></label>
-        <button class="pri">Generate</button></form></div><div id="out"></div>`;
-    applyBrand($('#f'));
-    $('#f').onsubmit = async e => {
-      e.preventDefault(); const btn = $('button', e.target); btn.disabled = true;
+    el.innerHTML = `<h2>Studio <span class="muted">· ${t('goal, campaigns and creatives in one place')}</span></h2>
+      <div id="sp-goal"></div><h3>${t('Your creatives')}</h3><div id="sp-cr"></div><div id="sp-copy"></div>`;
+    const crBox = $('#sp-cr', el), refresh = () => creativesPanel(crBox, refresh);
+    await goalPlanner($('#sp-goal', el), async (plan, v) => {
+      const pn = $('#plannote', el);
       try {
-        const r = await api('/ai/copy', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) });
-        $('#out').innerHTML = (r.llm ? '' : '<p class="muted">Template mode – set ANTHROPIC_API_KEY for LLM copy.</p>') +
-          r.variants.map(v => `<div class="card"><span class="muted">${esc(v.angle)}</span><h3>${esc(v.headline)}</h3><p>${esc(v.body)}</p><b>[${esc(v.cta)}]</b></div>`).join('');
-      } catch (x) { $('#out').innerHTML = `<p class="toast">${esc(x.message)}</p>`; }
-      btn.disabled = false;
-    };
+        const r = await api('/creatives/generate', { method: 'POST', body: { platforms: [v.platform], product: v.product } });
+        pn.textContent = t('Done! Campaigns and creatives are ready. Attach a creative to each campaign below.');
+        if (r.warnings && r.warnings.length) alert(r.warnings.join('\n'));
+      } catch (x) { pn.className = 'toast msgline'; pn.textContent = t('Campaigns created, but creatives failed: {e}', { e: x.message }); }
+      await refresh();
+    });
+    await Promise.all([refresh(), copyPanel($('#sp-copy', el))]);
   },
-
-
-  async creatives(el) {
-    const [opt, list, camps] = await Promise.all([api('/creatives/options'), api('/creatives'), api('/campaigns')]);
-    const label = { meta: 'Meta', tiktok: 'TikTok', google: 'Google' };
-    const gallery = items => items.map(c => `<div class="card" style="margin:0"><img src="/api/creatives/${c.id}/image" alt="" loading="lazy" style="width:100%;max-height:340px;object-fit:contain;border-radius:8px;background:#000">
-      <p style="margin:8px 0 4px">${pill(c.platform)} <span class="muted">${esc(c.format)} · ${c.width}×${c.height}</span></p>
-      <div style="display:flex;gap:6px;flex-wrap:wrap"><a href="/api/creatives/${c.id}/image?download=true"><button type="button">Download</button></a>
-      <select data-attach="${c.id}"><option value="">Attach to campaign…</option>${camps.filter(k => k.platform === c.platform).map(k => `<option value="${k.id}" ${k.id === c.campaign_id ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}</select>
-      <button type="button" data-del="${c.id}">✕</button></div></div>`).join('');
-    el.innerHTML = `<h2>Creative Studio <span class="muted">· image ads sized for each platform</span></h2>
-      <div class="card"><form id="f" class="row">
-        <label>Product name<input name="product" required maxlength="80"></label>
-        <label>Description (facts only)<input name="description" maxlength="500" placeholder="What it is, flavor, size, materials…"></label>
-        <label>Audience<input name="audience" maxlength="120"></label>
-        <label>Language<select name="language">${Object.entries(opt.languages).map(([k, v]) => `<option value="${k}">${v}`).join('')}</select></label>
-        <label>Tone<select name="tone"><option>friendly<option>bold<option>professional<option>playful<option>urgent</select></label>
-        <label>Theme<select name="theme">${opt.themes.map(t => `<option>${t}`).join('')}</select></label>
-        <label>Price badge (optional)<input name="price" maxlength="20" placeholder="$119.900 COP"></label>
-        <label>Rating line (optional, must be true)<input name="social_proof" maxlength="50" placeholder="4.8/5 from 1,200 reviews"></label>
-        <label>Product image (PNG, transparent bg works best)<input type="file" name="img" accept="image/png,image/jpeg,image/webp"></label>
-        <label style="grid-column:1/-1">Real customer testimonials (optional, one per line: <code>Name: quote</code>)<textarea name="tests" rows="2" maxlength="600"></textarea></label>
-        <fieldset style="grid-column:1/-1;border:0;padding:0;margin:0"><span class="muted">Platforms</span><br>
-          ${Object.keys(opt.formats).map(p => `<label style="display:inline-block;margin-right:16px;width:auto"><input type="checkbox" name="pf" value="${p}" checked style="display:inline;width:auto"> ${label[p]} <span class="muted">(${Object.values(opt.formats[p]).map(s => s.join('×')).join(', ')})</span></label>`).join('')}</fieldset>
-        <label style="grid-column:1/-1">${opt.scene_available ? `<input type="checkbox" name="scene" style="display:inline;width:auto"> AI scene backgrounds <span class="muted">(Higgsfield · a few cents per image, capped at $${opt.scene_cost_cap_usd}/run)</span>` : `<span class="muted">${t('AI scene backgrounds: add your Higgsfield API key on the <a href="#connections">Connections</a> page to enable')}</span>`}
-          <input name="scene_hint" maxlength="200" placeholder="Scene idea, e.g. cozy bedroom at night (don't name the product)"></label>
-        <button class="pri">Generate creatives</button></form>
-        <p class="muted" style="margin:10px 0 0">Reviews, ratings and customer counts are never invented — they only appear if you enter them. 9:16 formats keep text inside platform safe zones.</p>
-        <div id="err" class="toast"></div></div>
-      <div id="out" class="grid" style="grid-template-columns:repeat(auto-fill,minmax(240px,1fr))">${gallery(list)}</div>`;
-    cutoutButton($('#f')); applyBrand($('#f'));
-    const file = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
-    $('#f').onsubmit = async e => {
-      e.preventDefault(); const fd = new FormData(e.target), btn = $('button.pri', e.target); $('#err').textContent = '';
-      const platforms = fd.getAll('pf'); if (!platforms.length) return $('#err').textContent = t('Pick at least one platform');
-      const testimonials = (fd.get('tests') || '').split('\n').map(l => l.trim()).filter(l => l.includes(':'))
-        .map(l => ({ name: l.slice(0, l.indexOf(':')).trim(), text: l.slice(l.indexOf(':') + 1).trim() }));
-      const body = { platforms, testimonials };
-      for (const k of ['product', 'description', 'audience', 'language', 'tone', 'theme', 'price', 'social_proof']) body[k] = fd.get(k) || '';
-      const f = fd.get('img'); if (f && f.size) { if (f.size > 8e6) return $('#err').textContent = t('Image over 8MB'); body.product_image = await file(f); }
-      body.scene = fd.get('scene') === 'on'; body.scene_hint = fd.get('scene_hint') || '';
-      btn.disabled = true; btn.textContent = t('Generating…');
-      try { const r = await api('/creatives/generate', { method: 'POST', body }); if (r.warnings.length || r.scene_cost_usd) alert((r.scene_cost_usd ? t('Scene cost: ${c}', { c: r.scene_cost_usd }) + '\\n' : '') + r.warnings.join('\\n')); views.creatives(el); }
-      catch (x) { $('#err').textContent = x.message; btn.disabled = false; btn.textContent = t('Generate creatives'); }
-    };
-    el.onchange = async e => {
-      const id = e.target.dataset.attach; if (!id || !e.target.value) return;
-      await api(`/creatives/${id}/attach`, { method: 'POST', body: { campaign_id: +e.target.value } }); alert(t('Attached – campaign text updated'));
-    };
-    el.onclick = async e => {
-      const b = e.target.closest('button[data-del]'); if (!b || !confirm(t('Delete creative?'))) return;
-      await api('/creatives/' + b.dataset.del, { method: 'DELETE' }); views.creatives(el);
-    };
-  },
-
+  creatives(el) { location.hash = '#studio'; },
 
   async videos(el) {
     const opt = await api('/creatives/options');

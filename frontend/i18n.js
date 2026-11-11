@@ -141,6 +141,18 @@ const ES = {
   'Ad': 'Anuncio',
   'Total': 'Total',
   'Create these campaigns': 'Crear estas campañas',
+  'Studio': 'Estudio',
+  'goal, campaigns and creatives in one place': 'objetivo, campañas y creatividades en un solo lugar',
+  'Your creatives': 'Tus creatividades',
+  'Want new campaigns?': '¿Quieres campañas nuevas?',
+  'Pick a goal in the Studio and the app builds the campaigns and creatives for you.': 'Elige un objetivo en el Estudio y la app arma las campañas y las creatividades por ti.',
+  'Go to the Studio': 'Ir al Estudio',
+  'No creatives yet. Build a plan above and they appear here.': 'Aún no hay creatividades. Arma un plan arriba y aparecerán aquí.',
+  'Create a creative manually (advanced)': 'Crear una creatividad manualmente (avanzado)',
+  'Write ad copy (advanced)': 'Escribir textos de anuncios (avanzado)',
+  'Campaigns created. Making your creatives…': 'Campañas creadas. Preparando tus creatividades…',
+  'Done! Campaigns and creatives are ready. Attach a creative to each campaign below.': '¡Listo! Las campañas y las creatividades están listas. Adjunta una creatividad a cada campaña aquí abajo.',
+  'Campaigns created, but creatives failed: {e}': 'Campañas creadas, pero fallaron las creatividades: {e}',
   'Which campaign should I scale?': '¿Qué campaña debería escalar?', 'Ask': 'Preguntar', 'Error: {e}': 'Error: {e}',
   // ---- Connections ----
   'These credentials belong to <b>your account only</b>. They are stored encrypted and never shown again after saving - leave a secret blank to keep it.':
