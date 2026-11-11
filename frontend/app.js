@@ -1,5 +1,5 @@
-import { auth } from './auth.js?v=brand-1';
-import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-1';
+import { auth } from './auth.js?v=brand-2';
+import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-2';
 
 const authPollers = new Set();
 
@@ -455,6 +455,7 @@ const views = {
       ${cs.map(c => `<form class="card conn" data-s="${c.service}"${c.connected ? ' data-has="1"' : ''}>
         <h3 style="margin-top:0">${esc(c.title)} <span class="conn-status muted" data-status>${c.connected ? '● checking…' : '● not connected'}</span></h3>
         ${hint[c.service] ? `<p class="muted">${hint[c.service]}</p>` : ''}
+        ${c.service === 'meta' ? `<p><a href="/${document.documentElement.lang === 'en' ? 'en' : 'es'}/meta-token/" target="_blank" rel="noopener">${esc(t('How do I get my access token? Step-by-step guide'))}</a></p>` : ''}
         ${c.webhook_path ? `<p>Callback URL: <code>${esc(location.origin + c.webhook_path)}</code></p>` : ''}
         <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">${c.fields.map(f => `<label>${esc(t(f.label))}${f.required ? ' *' : ''}
           <input name="${f.name}" type="${f.secret ? 'password' : 'text'}" autocomplete="off" value="${esc(f.value)}"

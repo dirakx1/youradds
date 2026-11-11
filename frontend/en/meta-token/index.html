@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>How to get your Meta Ads access token · youradds</title>
+  <meta name="description" content="Step-by-step guide to generate a Meta Ads access token and connect it to youradds.">
+  <link rel="alternate" hreflang="en" href="https://youradds.co/en/meta-token/">
+  <link rel="alternate" hreflang="es" href="https://youradds.co/es/meta-token/">
+  <link rel="alternate" hreflang="x-default" href="https://youradds.co/en/meta-token/">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon.ico" sizes="32x32">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta name="theme-color" content="#6c5ce7">
+  <link rel="stylesheet" href="/styles.css?v=mobile-1">
+  <script src="/lang.js" defer></script>
+</head>
+<body class="legal-body">
+  <main class="legal-page">
+    <a class="legal-brand" href="/en/">your<span>adds</span></a>
+    <h1>How to get your Meta Ads access token</h1>
+    <p>You need two things to connect Meta in youradds: an <strong>access token</strong> and your <strong>ad account ID</strong>. This guide uses a “system user”, which gives a token that doesn't expire after a few hours. It takes about 10 minutes.</p>
+    <h2>Before you start</h2>
+    <ul><li>A Facebook account that is an admin of your <strong>Business Manager</strong> (business.facebook.com).</li><li>An ad account and, if you will publish ads, a Facebook Page inside that Business Manager.</li></ul>
+    <h2>Step by step</h2>
+    <ol><li><strong>Create a Meta app.</strong> Go to <a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener">developers.facebook.com/apps</a>, click <strong>Create app</strong>, choose the <strong>Other</strong> use case and the <strong>Business</strong> type. Name it (for example “youradds”) and link it to your Business Manager. Then add the <strong>Marketing API</strong> product.</li><li><strong>Open business settings.</strong> Go to <a href="https://business.facebook.com/settings" target="_blank" rel="noopener">business.facebook.com/settings</a> and pick your business.</li><li><strong>Create a system user.</strong> Under <strong>Users → System users</strong> click <strong>Add</strong>, enter a name (for example “youradds”) and choose the <strong>Admin</strong> role.</li><li><strong>Give it access to your ad account.</strong> With the user selected, click <strong>Assign assets</strong> → <strong>Ad accounts</strong>, tick your account and turn on <strong>Full control</strong> (manage campaigns). If you will publish ads, also assign your <strong>Page</strong>.</li><li><strong>Generate the token.</strong> Click <strong>Generate new token</strong>, pick your app and, if offered, the option that <strong>never</strong> expires. Tick the permissions <code>ads_management</code>, <code>ads_read</code> and <code>business_management</code>. Click <strong>Generate token</strong>.</li><li><strong>Copy the token.</strong> Copy the long text that appears (it starts with <code>EAA…</code>). <strong>Meta shows it only once</strong>: store it somewhere safe and never share it.</li><li><strong>Find your ad account ID.</strong> In <a href="https://adsmanager.facebook.com/" target="_blank" rel="noopener">Ads Manager</a> the ID is in the account selector, or in the URL as <code>act=1234567890</code>. In youradds you can enter it with or without <code>act_</code>.</li><li><strong>Paste them into youradds.</strong> Open <a href="/en/#connections">Connections</a>, paste the token and the ID into the Meta card and click <strong>Save</strong>. Then click <strong>Test &amp; import campaigns</strong> to check it works.</li></ol>
+    <h2>Common problems</h2>
+    <ul><li><strong>“Credentials rejected”:</strong> check you copied the whole token with no spaces and that the system user has the ad account assigned.</li><li><strong>No never-expires option:</strong> the token still works; if it expires, generate a new one and replace it in Connections.</li><li><strong>Security:</strong> youradds stores your token encrypted. If you think it leaked, revoke it under System users.</li></ul>
+    <p><a href="/en/#connections">← Back to Connections</a></p>
+    <p class="muted">Questions? Write to <a href="mailto:contact@youradds.co">contact@youradds.co</a>.</p>
+  </main>
+  <footer class="site-footer"><span>© 2026 youradds</span><nav aria-label="Legal"><a href="/en/about/">About</a><a href="/en/contact/">Contact</a><a href="/en/terms/">Terms</a><a href="/en/privacy/">Privacy</a></nav><nav class="lang-switch" aria-label="Language"><a href="/en/meta-token/" hreflang="en" lang="en" data-setlang="en" aria-current="true">English</a><a href="/es/meta-token/" hreflang="es" lang="es" data-setlang="es">Español</a></nav></footer>
+</body>
+</html>

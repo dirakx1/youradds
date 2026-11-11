@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 UI_LANGS = ("en", "es")
 DEFAULT_LANG = "es"   # visitors with no saved choice and no matching Accept-Language
 APP_PAGES = ("", "sign-in", "sign-up", "forgot-password", "sso-callback", "account")   # served by the SPA shell
-STATIC_PAGES = ("about", "contact", "privacy", "terms")                                  # frontend/<lang>/<page>/index.html
+STATIC_PAGES = ("about", "contact", "privacy", "terms", "meta-token")                                  # frontend/<lang>/<page>/index.html
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
 
 

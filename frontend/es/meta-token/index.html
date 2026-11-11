@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Cómo obtener tu token de acceso de Meta Ads · youradds</title>
+  <meta name="description" content="Guía paso a paso para generar el token de acceso de Meta Ads y conectarlo a youradds.">
+  <link rel="alternate" hreflang="en" href="https://youradds.co/en/meta-token/">
+  <link rel="alternate" hreflang="es" href="https://youradds.co/es/meta-token/">
+  <link rel="alternate" hreflang="x-default" href="https://youradds.co/en/meta-token/">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon.ico" sizes="32x32">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta name="theme-color" content="#6c5ce7">
+  <link rel="stylesheet" href="/styles.css?v=mobile-1">
+  <script src="/lang.js" defer></script>
+</head>
+<body class="legal-body">
+  <main class="legal-page">
+    <a class="legal-brand" href="/es/">your<span>adds</span></a>
+    <h1>Cómo obtener tu token de acceso de Meta Ads</h1>
+    <p>Necesitas dos datos para conectar Meta en youradds: el <strong>token de acceso</strong> y el <strong>ID de tu cuenta publicitaria</strong>. Esta guía usa un «usuario del sistema», que genera un token que no vence cada pocas horas. Tarda unos 10 minutos.</p>
+    <h2>Antes de empezar</h2>
+    <ul><li>Una cuenta de Facebook que sea administradora de tu <strong>Business Manager</strong> (business.facebook.com).</li><li>Una cuenta publicitaria y, si vas a publicar, una página de Facebook dentro de ese Business Manager.</li></ul>
+    <h2>Paso a paso</h2>
+    <ol><li><strong>Crea una app de Meta.</strong> Entra a <a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener">developers.facebook.com/apps</a>, pulsa <strong>Crear app</strong>, elige el caso de uso <strong>Otro</strong> y el tipo <strong>Empresa</strong> (Business). Ponle un nombre (por ejemplo «youradds») y asócialo a tu Business Manager. Luego agrega el producto <strong>API de Marketing</strong>.</li><li><strong>Abre la configuración del negocio.</strong> Ve a <a href="https://business.facebook.com/settings" target="_blank" rel="noopener">business.facebook.com/settings</a> y elige tu negocio.</li><li><strong>Crea un usuario del sistema.</strong> En <strong>Usuarios → Usuarios del sistema</strong> pulsa <strong>Agregar</strong>, escribe un nombre (por ejemplo «youradds») y elige el rol <strong>Administrador</strong>.</li><li><strong>Dale acceso a tu cuenta publicitaria.</strong> Con el usuario seleccionado, pulsa <strong>Asignar activos</strong> → <strong>Cuentas publicitarias</strong>, marca tu cuenta y activa <strong>Control total</strong> (administrar campañas). Si vas a publicar anuncios, asigna también tu <strong>Página</strong>.</li><li><strong>Genera el token.</strong> Pulsa <strong>Generar nuevo token</strong>, elige tu app y, si te lo ofrece, la duración que <strong>nunca</strong> vence. Marca los permisos <code>ads_management</code>, <code>ads_read</code> y <code>business_management</code>. Pulsa <strong>Generar token</strong>.</li><li><strong>Copia el token.</strong> Copia el texto largo que aparece (empieza por <code>EAA…</code>). <strong>Meta lo muestra una sola vez</strong>: guárdalo en un lugar seguro y no lo compartas con nadie.</li><li><strong>Encuentra el ID de tu cuenta publicitaria.</strong> En <a href="https://adsmanager.facebook.com/" target="_blank" rel="noopener">Ads Manager</a> el ID aparece en el selector de cuenta, o en la URL como <code>act=1234567890</code>. En youradds puedes escribirlo con o sin <code>act_</code>.</li><li><strong>Pégalos en youradds.</strong> Abre <a href="/es/#connections">Conexiones</a>, pega el token y el ID en la tarjeta de Meta y pulsa <strong>Guardar</strong>. Después pulsa <strong>Probar e importar campañas</strong> para comprobar que funciona.</li></ol>
+    <h2>Problemas comunes</h2>
+    <ul><li><strong>«Credenciales rechazadas»:</strong> revisa que copiaste el token completo, sin espacios, y que el usuario del sistema tiene la cuenta publicitaria asignada.</li><li><strong>No aparece la opción de que nunca venza:</strong> el token igual sirve; si caduca, genera uno nuevo y reemplázalo en Conexiones.</li><li><strong>Seguridad:</strong> youradds guarda tu token cifrado. Si crees que se filtró, revócalo en Usuarios del sistema.</li></ul>
+    <p><a href="/es/#connections">← Volver a Conexiones</a></p>
+    <p class="muted">¿Dudas? Escríbenos a <a href="mailto:contact@youradds.co">contact@youradds.co</a>.</p>
+  </main>
+  <footer class="site-footer"><span>© 2026 youradds</span><nav aria-label="Legal"><a href="/es/about/">Acerca de</a><a href="/es/contact/">Contacto</a><a href="/es/terms/">Términos</a><a href="/es/privacy/">Privacidad</a></nav><nav class="lang-switch" aria-label="Idioma"><a href="/en/meta-token/" hreflang="en" lang="en" data-setlang="en">English</a><a href="/es/meta-token/" hreflang="es" lang="es" data-setlang="es" aria-current="true">Español</a></nav></footer>
+</body>
+</html>

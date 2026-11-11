@@ -106,6 +106,7 @@ const ES = {
   // ---- Connections ----
   'These credentials belong to <b>your account only</b>. They are stored encrypted and never shown again after saving - leave a secret blank to keep it.':
     'Estas credenciales pertenecen <b>solo a tu cuenta</b>. Se guardan cifradas y no se vuelven a mostrar tras guardarlas: deja un secreto en blanco para conservar el guardado.',
+  'How do I get my access token? Step-by-step guide': '¿Cómo obtengo mi token de acceso? Guía paso a paso',
   'Also used for Instagram placements.': 'También se usa para ubicaciones en Instagram.',
   'In Meta\'s WhatsApp webhook settings, set the callback URL and verify token shown below, and subscribe to "messages".': 'En los ajustes del webhook de WhatsApp de Meta, configura la URL de callback y el token de verificación que se muestran abajo, y suscríbete a «messages».',
   'Callback URL:': 'URL de callback:', ' (saved)': ' (guardado)', 'Test & import campaigns': 'Probar e importar campañas', 'Disconnect': 'Desconectar', 'Re-check': 'Volver a comprobar',
