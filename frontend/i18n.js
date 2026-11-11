@@ -153,6 +153,9 @@ const ES = {
   'Campaigns created. Making your creatives…': 'Campañas creadas. Preparando tus creatividades…',
   'Done! Campaigns and creatives are ready. Attach a creative to each campaign below.': '¡Listo! Las campañas y las creatividades están listas. Adjunta una creatividad a cada campaña aquí abajo.',
   'Campaigns created, but creatives failed: {e}': 'Campañas creadas, pero fallaron las creatividades: {e}',
+  'Your videos': 'Tus videos',
+  'Make a video (AI background + your product, text and CTA)': 'Crear un video (fondo con IA + tu producto, texto y llamado a la acción)',
+  'Also make a video': 'Crear también un video',
   'Which campaign should I scale?': '¿Qué campaña debería escalar?', 'Ask': 'Preguntar', 'Error: {e}': 'Error: {e}',
   // ---- Connections ----
   'These credentials belong to <b>your account only</b>. They are stored encrypted and never shown again after saving - leave a secret blank to keep it.':

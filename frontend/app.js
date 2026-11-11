@@ -1,5 +1,5 @@
-import { auth } from './auth.js?v=brand-6';
-import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-6';
+import { auth } from './auth.js?v=brand-7';
+import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-7';
 
 const authPollers = new Set();
 
@@ -239,6 +239,84 @@ async function goalPlanner(box, onCreated) {
     };
 }
 
+async function videosPanel(el) {
+    const opt = await api('/creatives/options');
+    // one checkbox per output; every aspect ratio is a separate (billed) generation, so only 9:16 is pre-selected
+    const outputs = [['meta:reel', 'Meta Reel (9:16)', true], ['meta:feed_square', 'Meta Feed (1:1)', false],
+      ['tiktok:vertical', 'TikTok (9:16)', true], ['google:youtube_landscape', 'Google / YouTube (16:9)', false]];
+    let timer = null;
+    const mins = s => s == null ? '' : s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+    const stateText = v => v.status === 'failed' ? '⚠ ' + esc(t(v.error || 'failed'))
+      : v.status === 'compositing' ? t('Adding your product, text and CTA…')
+      : v.provider_status === 'in_progress' ? t('Rendering at Higgsfield… {t} (usually a few minutes)', { t: mins(v.elapsed_s) })
+      : v.provider_status === 'queued' ? t('Waiting in Higgsfield\'s queue… {t}', { t: mins(v.elapsed_s) })
+      : t('Starting… {t}', { t: mins(v.elapsed_s) });
+    const render = list => {
+      $('#vlist', el).innerHTML = list.map(v => `<div class="card" style="margin:0">
+        ${v.status === 'done' ? `<video src="/api/videos/${v.id}/file" controls preload="metadata" style="width:100%;max-height:340px;border-radius:8px;background:#000"></video>`
+          : `<div style="height:200px;display:grid;place-items:center;background:#000;border-radius:8px;color:#aaa;padding:10px;text-align:center">${stateText(v)}</div>`}
+        <p style="margin:8px 0 4px">${pill(v.platform)} <span class="muted">${esc(v.format)} · ${v.width}×${v.height} · ${v.duration}s · ~$${(v.cost_usd || 0).toFixed(2)}</span></p>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">${v.status === 'done' ? `<a href="/api/videos/${v.id}/file?download=true"><button type="button">Download</button></a>` : ''}
+        ${v.resumable ? `<button type="button" data-resume="${v.id}">Check again</button>` : ''}
+        ${v.status === 'generating' && v.provider_status === 'queued' ? `<button type="button" data-cancel="${v.id}">Cancel (refund)</button>` : ''}
+        <button type="button" data-del="${v.id}">✕</button></div>
+        ${v.request_id && v.status !== 'done' ? `<p class="muted" style="font-size:11px;margin:6px 0 0">${esc(t('Request {id}', { id: v.request_id }))}</p>` : ''}</div>`).join('') || '<p class="muted">No videos yet.</p>';
+    };
+    const refresh = async () => {
+      if (location.hash !== '#studio' || !el.isConnected) { if (timer) { clearInterval(timer); authPollers.delete(timer); timer = null; } return; }
+      const list = await api('/videos'); render(list);
+      if (!list.some(v => ['queued', 'generating', 'compositing'].includes(v.status))) { if (timer) { clearInterval(timer); authPollers.delete(timer); timer = null; } }
+    };
+    const poll = () => { if (timer) { clearInterval(timer); authPollers.delete(timer); } timer = setInterval(refresh, 4000); authPollers.add(timer); };
+    el.innerHTML = `<div id="vlist" class="grid" style="grid-template-columns:repeat(auto-fill,minmax(240px,1fr))"></div>
+      <details class="card adv" id="vdet"><summary>${t('Make a video (AI background + your product, text and CTA)')}</summary>
+      ${opt.scene_available ? '' : `<p class="toast">${t('Add your Higgsfield API key on the <a href="#connections">Connections</a> page to enable video.')}</p>`}
+      <form id="vf" class="row">
+        <label>Product name<input name="product" required maxlength="80"></label>
+        <label>Description (facts only)<input name="description" maxlength="500"></label>
+        <label>Audience<input name="audience" maxlength="120"></label>
+        <label>Scene idea (don't name the product)<input name="scene_hint" maxlength="200" placeholder="cozy bedroom at night"></label>
+        <label>Language<select name="language">${Object.entries(opt.languages).map(([k, v]) => `<option value="${k}">${v}`).join('')}</select></label>
+        <label>Theme<select name="theme">${opt.themes.map(t => `<option>${t}`).join('')}</select></label>
+        <label>Length<select name="duration"><option>4<option selected>5<option>8<option>10<option>15</select></label>
+        <label>Quality<select name="resolution"><option value="480p">Draft 480p (~$0.21/s)<option value="720p" selected>Standard 720p (~$0.46/s)</select></label>
+        <label>Price badge (optional)<input name="price" maxlength="20"></label>
+        <label>Rating line (optional, must be true)<input name="social_proof" maxlength="50"></label>
+        <label>Product image (PNG, transparent bg)<input type="file" name="img" accept="image/png,image/jpeg,image/webp"></label>
+        <fieldset style="grid-column:1/-1;border:0;padding:0;margin:0"><span class="muted">Platforms</span><br>
+          ${outputs.map(([v, text, on]) => `<label style="display:inline-block;margin-right:16px;width:auto"><input type="checkbox" name="pf" value="${v}" ${on ? 'checked' : ''} style="display:inline;width:auto"> ${text}</label>`).join('')}
+          <br><span class="muted">9:16 serves Meta Reels and TikTok from one clip. Every extra aspect ratio is another generation: slower and billed.</span></fieldset>
+        <button class="pri" ${opt.scene_available ? '' : 'disabled'}>Estimate &amp; generate</button></form>
+        <p class="muted" style="margin:10px 0 0">One background clip is generated per aspect ratio and shared across platforms. Your real product photo is composited on top, never redrawn. No audio. You'll see the estimated cost and confirm before anything is billed.</p>
+        <div id="verr" class="toast"></div></details>`;
+    cutoutButton($('#vf', el)); applyBrand($('#vf', el));
+    const file = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
+    $('#vf', el).onsubmit = async e => {
+      e.preventDefault(); const fd = new FormData(e.target), btn = $('button.pri', e.target); $('#verr', el).textContent = '';
+      const formats = fd.getAll('pf'); if (!formats.length) return $('#verr', el).textContent = t('Pick at least one platform');
+      const body = { platforms: [...new Set(formats.map(f => f.split(':')[0]))], formats, duration: +fd.get('duration') };
+      for (const k of ['product', 'description', 'audience', 'language', 'theme', 'price', 'social_proof', 'scene_hint', 'resolution']) body[k] = fd.get(k) || '';
+      const f = fd.get('img'); if (f && f.size) { if (f.size > 8e6) return $('#verr', el).textContent = t('Image over 8MB'); body.product_image = await file(f); }
+      btn.disabled = true;
+      try {
+        const est = await api('/videos/estimate', { method: 'POST', body });
+        if (est.total_usd > est.cap_usd) throw new Error(t('Estimated ${est} exceeds your cap of ${cap} (VIDEO_MAX_USD). Try fewer platforms, a shorter clip or Draft quality.', { est: est.total_usd.toFixed(2), cap: est.cap_usd.toFixed(2) }));
+        if (!confirm(t('Estimated cost: ~${est} ({n} clip(s)). Billed to your Higgsfield balance. Generate?', { est: est.total_usd.toFixed(2), n: Object.keys(est.per_ratio).length }))) { btn.disabled = false; return; }
+        await api('/videos/generate', { method: 'POST', body }); await refresh(); poll();
+      } catch (x) { $('#verr', el).textContent = x.message; }
+      btn.disabled = false;
+    };
+    el.onclick = async e => {
+      const b = e.target.closest('button'); if (!b) return;
+      try {
+        if (b.dataset.resume) { await api(`/videos/${b.dataset.resume}/resume`, { method: 'POST' }); await refresh(); poll(); }
+        else if (b.dataset.cancel) { if (!confirm(t('Cancel this clip? Higgsfield refunds it if still queued.'))) return; await api(`/videos/${b.dataset.cancel}/cancel`, { method: 'POST' }); refresh(); }
+        else if (b.dataset.del && confirm(t('Delete video?'))) { await api('/videos/' + b.dataset.del, { method: 'DELETE' }); refresh(); }
+      } catch (x) { alert(t(x.message)); }
+    };
+    await refresh(); const l = await api('/videos'); if (l.some(v => ['queued', 'generating', 'compositing'].includes(v.status))) poll();
+}
+
 const views = {
   async dashboard(el) {
     const d = await api('/dashboard'), tot = d.totals;
@@ -348,7 +426,7 @@ const views = {
 
   async studio(el) {
     el.innerHTML = `<h2>Studio <span class="muted">· ${t('goal, campaigns and creatives in one place')}</span></h2>
-      <div id="sp-goal"></div><h3>${t('Your creatives')}</h3><div id="sp-cr"></div><div id="sp-copy"></div>`;
+      <div id="sp-goal"></div><h3>${t('Your creatives')}</h3><div id="sp-cr"></div><h3>${t('Your videos')}</h3><div id="sp-vid"></div><div id="sp-copy"></div>`;
     const crBox = $('#sp-cr', el), refresh = () => creativesPanel(crBox, refresh);
     await goalPlanner($('#sp-goal', el), async (plan, v) => {
       const pn = $('#plannote', el);
@@ -358,88 +436,14 @@ const views = {
         if (r.warnings && r.warnings.length) alert(r.warnings.join('\n'));
       } catch (x) { pn.className = 'toast msgline'; pn.textContent = t('Campaigns created, but creatives failed: {e}', { e: x.message }); }
       await refresh();
+      pn.insertAdjacentHTML('beforeend', ` <button type="button" id="mkvid">${t('Also make a video')}</button>`);
+      $('#mkvid', el).onclick = () => { const d = $('#vdet', el), f = $('#vf', el); d.open = true; const p = f.querySelector('[name=product]'); if (p && v.product) p.value = v.product; d.scrollIntoView({ behavior: 'smooth' }); };
     });
-    await Promise.all([refresh(), copyPanel($('#sp-copy', el))]);
+    await Promise.all([refresh(), videosPanel($('#sp-vid', el)), copyPanel($('#sp-copy', el))]);
   },
   creatives(el) { location.hash = '#studio'; },
 
-  async videos(el) {
-    const opt = await api('/creatives/options');
-    // one checkbox per output; every aspect ratio is a separate (billed) generation, so only 9:16 is pre-selected
-    const outputs = [['meta:reel', 'Meta Reel (9:16)', true], ['meta:feed_square', 'Meta Feed (1:1)', false],
-      ['tiktok:vertical', 'TikTok (9:16)', true], ['google:youtube_landscape', 'Google / YouTube (16:9)', false]];
-    let timer = null;
-    const mins = s => s == null ? '' : s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
-    const stateText = v => v.status === 'failed' ? '⚠ ' + esc(t(v.error || 'failed'))
-      : v.status === 'compositing' ? t('Adding your product, text and CTA…')
-      : v.provider_status === 'in_progress' ? t('Rendering at Higgsfield… {t} (usually a few minutes)', { t: mins(v.elapsed_s) })
-      : v.provider_status === 'queued' ? t('Waiting in Higgsfield\'s queue… {t}', { t: mins(v.elapsed_s) })
-      : t('Starting… {t}', { t: mins(v.elapsed_s) });
-    const render = list => {
-      $('#vlist').innerHTML = list.map(v => `<div class="card" style="margin:0">
-        ${v.status === 'done' ? `<video src="/api/videos/${v.id}/file" controls preload="metadata" style="width:100%;max-height:340px;border-radius:8px;background:#000"></video>`
-          : `<div style="height:200px;display:grid;place-items:center;background:#000;border-radius:8px;color:#aaa;padding:10px;text-align:center">${stateText(v)}</div>`}
-        <p style="margin:8px 0 4px">${pill(v.platform)} <span class="muted">${esc(v.format)} · ${v.width}×${v.height} · ${v.duration}s · ~$${(v.cost_usd || 0).toFixed(2)}</span></p>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">${v.status === 'done' ? `<a href="/api/videos/${v.id}/file?download=true"><button type="button">Download</button></a>` : ''}
-        ${v.resumable ? `<button type="button" data-resume="${v.id}">Check again</button>` : ''}
-        ${v.status === 'generating' && v.provider_status === 'queued' ? `<button type="button" data-cancel="${v.id}">Cancel (refund)</button>` : ''}
-        <button type="button" data-del="${v.id}">✕</button></div>
-        ${v.request_id && v.status !== 'done' ? `<p class="muted" style="font-size:11px;margin:6px 0 0">${esc(t('Request {id}', { id: v.request_id }))}</p>` : ''}</div>`).join('') || '<p class="muted">No videos yet.</p>';
-    };
-    const refresh = async () => {
-      if (location.hash !== '#videos') { if (timer) { clearInterval(timer); authPollers.delete(timer); timer = null; } return; }
-      const list = await api('/videos'); render(list);
-      if (!list.some(v => ['queued', 'generating', 'compositing'].includes(v.status))) { if (timer) { clearInterval(timer); authPollers.delete(timer); timer = null; } }
-    };
-    const poll = () => { if (timer) { clearInterval(timer); authPollers.delete(timer); } timer = setInterval(refresh, 4000); authPollers.add(timer); };
-    el.innerHTML = `<h2>Video Studio <span class="muted">· AI background video + your product, text and CTA</span></h2>
-      ${opt.scene_available ? '' : `<p class="toast">${t('Add your Higgsfield API key on the <a href="#connections">Connections</a> page to enable video.')}</p>`}
-      <div class="card"><form id="f" class="row">
-        <label>Product name<input name="product" required maxlength="80"></label>
-        <label>Description (facts only)<input name="description" maxlength="500"></label>
-        <label>Audience<input name="audience" maxlength="120"></label>
-        <label>Scene idea (don't name the product)<input name="scene_hint" maxlength="200" placeholder="cozy bedroom at night"></label>
-        <label>Language<select name="language">${Object.entries(opt.languages).map(([k, v]) => `<option value="${k}">${v}`).join('')}</select></label>
-        <label>Theme<select name="theme">${opt.themes.map(t => `<option>${t}`).join('')}</select></label>
-        <label>Length<select name="duration"><option>4<option selected>5<option>8<option>10<option>15</select></label>
-        <label>Quality<select name="resolution"><option value="480p">Draft 480p (~$0.21/s)<option value="720p" selected>Standard 720p (~$0.46/s)</select></label>
-        <label>Price badge (optional)<input name="price" maxlength="20"></label>
-        <label>Rating line (optional, must be true)<input name="social_proof" maxlength="50"></label>
-        <label>Product image (PNG, transparent bg)<input type="file" name="img" accept="image/png,image/jpeg,image/webp"></label>
-        <fieldset style="grid-column:1/-1;border:0;padding:0;margin:0"><span class="muted">Platforms</span><br>
-          ${outputs.map(([v, text, on]) => `<label style="display:inline-block;margin-right:16px;width:auto"><input type="checkbox" name="pf" value="${v}" ${on ? 'checked' : ''} style="display:inline;width:auto"> ${text}</label>`).join('')}
-          <br><span class="muted">9:16 serves Meta Reels and TikTok from one clip. Every extra aspect ratio is another generation: slower and billed.</span></fieldset>
-        <button class="pri" ${opt.scene_available ? '' : 'disabled'}>Estimate &amp; generate</button></form>
-        <p class="muted" style="margin:10px 0 0">One background clip is generated per aspect ratio and shared across platforms. Your real product photo is composited on top, never redrawn. No audio. You'll see the estimated cost and confirm before anything is billed.</p>
-        <div id="err" class="toast"></div></div>
-      <div id="vlist" class="grid" style="grid-template-columns:repeat(auto-fill,minmax(240px,1fr))"></div>`;
-    cutoutButton($('#f')); applyBrand($('#f'));
-    const file = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
-    $('#f').onsubmit = async e => {
-      e.preventDefault(); const fd = new FormData(e.target), btn = $('button.pri', e.target); $('#err').textContent = '';
-      const formats = fd.getAll('pf'); if (!formats.length) return $('#err').textContent = t('Pick at least one platform');
-      const body = { platforms: [...new Set(formats.map(f => f.split(':')[0]))], formats, duration: +fd.get('duration') };
-      for (const k of ['product', 'description', 'audience', 'language', 'theme', 'price', 'social_proof', 'scene_hint', 'resolution']) body[k] = fd.get(k) || '';
-      const f = fd.get('img'); if (f && f.size) { if (f.size > 8e6) return $('#err').textContent = t('Image over 8MB'); body.product_image = await file(f); }
-      btn.disabled = true;
-      try {
-        const est = await api('/videos/estimate', { method: 'POST', body });
-        if (est.total_usd > est.cap_usd) throw new Error(t('Estimated ${est} exceeds your cap of ${cap} (VIDEO_MAX_USD). Try fewer platforms, a shorter clip or Draft quality.', { est: est.total_usd.toFixed(2), cap: est.cap_usd.toFixed(2) }));
-        if (!confirm(t('Estimated cost: ~${est} ({n} clip(s)). Billed to your Higgsfield balance. Generate?', { est: est.total_usd.toFixed(2), n: Object.keys(est.per_ratio).length }))) { btn.disabled = false; return; }
-        await api('/videos/generate', { method: 'POST', body }); await refresh(); poll();
-      } catch (x) { $('#err').textContent = x.message; }
-      btn.disabled = false;
-    };
-    el.onclick = async e => {
-      const b = e.target.closest('button'); if (!b) return;
-      try {
-        if (b.dataset.resume) { await api(`/videos/${b.dataset.resume}/resume`, { method: 'POST' }); await refresh(); poll(); }
-        else if (b.dataset.cancel) { if (!confirm(t('Cancel this clip? Higgsfield refunds it if still queued.'))) return; await api(`/videos/${b.dataset.cancel}/cancel`, { method: 'POST' }); refresh(); }
-        else if (b.dataset.del && confirm(t('Delete video?'))) { await api('/videos/' + b.dataset.del, { method: 'DELETE' }); refresh(); }
-      } catch (x) { alert(t(x.message)); }
-    };
-    await refresh(); const l = await api('/videos'); if (l.some(v => ['queued', 'generating', 'compositing'].includes(v.status))) poll();
-  },
+  videos(el) { location.hash = '#studio'; },
 
   async optimizer(el) {
     const recs = await api('/ai/recommendations');
