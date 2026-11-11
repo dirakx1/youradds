@@ -15,7 +15,7 @@ from .config import PLATFORMS, validate_clerk_config
 from .db import check_database_revision, dispose_engine, engine, session_scope
 from .models import Campaign, Metric
 from .platforms import make as make_platform
-from . import whatsapp, creatives, videos, cutout, pages
+from . import whatsapp, creatives, videos, cutout, pages, goals
 
 
 @asynccontextmanager
@@ -73,6 +73,17 @@ class CampaignIn(BaseModel):
     cta: str = "Más información"
     landing_url: str = ""
     audience: str = ""
+
+
+class GoalIn(BaseModel):
+    goal: Literal["awareness", "sales", "recover"]
+    platform: Platform = "meta"
+    product: str = ""                  # empty = the brand's first product
+    daily_budget: float = Field(default_factory=lambda: 50000.0 if config.DEFAULT_CURRENCY == "COP" else 20.0, gt=0)
+    landing_url: str = ""
+    audience: str = ""
+    tone: str = ""
+    language: str = ""
 
 
 class CopyIn(BaseModel):
@@ -151,6 +162,19 @@ def health():
 @app.get("/api/campaigns")
 def list_campaigns(days: int = 7, user: dict = Depends(current_user)):
     return _campaigns(user["id"], days)
+
+
+@app.post("/api/campaigns/plan")
+def plan_campaigns(body: GoalIn, user: dict = Depends(current_user)):
+    """Preview only: the campaign structure for a goal. Nothing is created until the client posts each campaign."""
+    b = brand.fill(user["id"], body, kind="copy")
+    if body.language not in creatives.LANGS:
+        raise HTTPException(400, "unsupported language")
+    variants = ai.generate_copy(body.platform, body.product, body.audience or "everyone", body.tone or "friendly", 2,
+                                creatives.LANGS[body.language], body.language, brand.prompt_block(b))
+    plan = goals.build_plan(body.goal, body.platform, body.product, body.daily_budget, b["ideal_customer"] if b else "",
+                            variants, body.landing_url, cop=config.DEFAULT_CURRENCY == "COP")
+    return {**plan, "llm": ai.llm_available()}
 
 
 @app.post("/api/campaigns", status_code=201)

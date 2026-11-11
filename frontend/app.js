@@ -1,5 +1,5 @@
-import { auth } from './auth.js?v=brand-4';
-import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-4';
+import { auth } from './auth.js?v=brand-5';
+import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-5';
 
 const authPollers = new Set();
 
@@ -152,20 +152,58 @@ const views = {
 
   async campaigns(el) {
     const rows = await api('/campaigns');
+    const GOALS = [['awareness', '👋', 'I want people to know me', 'Reach new people who could like your brand.'],
+      ['sales', '🛒', 'I want people to buy', 'Get new customers and remind recent visitors.'],
+      ['recover', '🔁', 'Win back those who did not buy', 'Talk again to people who showed interest and left.']];
+    const OBJ = { awareness: 'Be known', traffic: 'Visits to your page', sales: 'Sales', leads: 'Contacts', whatsapp: 'WhatsApp chats' };
+    const prods = brandCache && brandCache.completed ? brandCache.products.map(x => x.name) : [];
     el.innerHTML = `<h2>Campaigns</h2>
-      <div class="card"><form class="row" id="f">
+      <div class="card"><h3 style="margin-top:0">${t('What do you want to achieve?')}</h3>
+        <p class="muted">${t('Pick a goal and the app builds the campaign structure for you. You review it before anything is created.')}</p>
+        <form id="goalf" class="stack">
+          <div class="goals">${GOALS.map(([k, ic, ti, de], i) => `<label class="goal"><input type="radio" name="goal" value="${k}"${i === 1 ? ' checked' : ''}><span class="goal-ic">${ic}</span><b>${t(ti)}</b><small class="muted">${t(de)}</small></label>`).join('')}</div>
+          <div class="row">
+            <label>${t('Platform')}<select name="platform"><option value="meta">Meta (Facebook + Instagram)<option value="tiktok">TikTok<option value="google">Google</select></label>
+            <label>${t('Product')}${prods.length ? `<select name="product">${prods.map(n => `<option>${esc(n)}`).join('')}</select>` : `<input name="product" required>`}</label>
+            <label>${t('Total daily budget')} (${currency})<input name="daily_budget" type="number" min="1" step="any" value="${currency === 'COP' ? 50000 : 20}"></label>
+            <label>${t('Page or store link (optional)')}<input name="landing_url" type="url" placeholder="https://"></label>
+          </div>
+          <button class="pri">${t('Build my plan')}</button> <span class="muted msgline" id="goalnote"></span></form>
+        <div id="plan"></div></div>
+      <details class="card adv"><summary>${t('Create a campaign manually (advanced)')}</summary>
+      <form class="row" id="f">
         <label>Platform<select name="platform"><option value="meta">Meta<option value="tiktok">TikTok<option value="google">Google</select></label>
         <label>Name<input name="name" required></label>
         <label>Objective<select name="objective"><option>sales<option>traffic<option>leads<option>awareness<option>whatsapp</select></label>
         <label>${t('Daily budget')} (${currency})<input name="daily_budget" type="number" min="1" step="any" value="${currency === 'COP' ? 50000 : 20}"></label>
         <label>Headline<input name="headline"></label>
         <label>Landing URL<input name="landing_url" type="url"></label>
-        <button class="pri">Create campaign</button></form><div id="err" class="toast"></div></div>
+        <button class="pri">Create campaign</button></form><div id="err" class="toast"></div></details>
       <div class="card scroll"><table class="rtable"><thead><tr><th>Name<th>Platform<th>Status<th>Budget/day<th>Spend 7d<th>CTR<th>CPA<th>ROAS<th></tr></thead>
       ${rows.map(c => `<tr><td data-label="${t('Name')}">${esc(c.name)}<td data-label="${t('Platform')}">${pill(c.platform)}<td data-label="${t('Status')}" class="st-${c.status}">${c.status}<td data-label="${t('Budget/day')}">${money(c.daily_budget)}
         <td data-label="${t('Spend 7d')}">${money(c.spend)}<td data-label="CTR">${c.ctr}%<td data-label="CPA">${c.cpa ? money(c.cpa) : '–'}<td data-label="ROAS">${c.roas}x
         <td data-label=""><button data-t="${c.id}" data-s="${c.status === 'active' ? 'paused' : 'active'}">${c.status === 'active' ? 'Pause' : 'Resume'}</button>
         <button data-d="${c.id}">✕</button>`).join('')}</table></div>`;
+    const gf = $('#goalf'), plan = $('#plan'), gnote = $('#goalnote');
+    gf.onsubmit = async e => {
+      e.preventDefault(); gnote.className = 'muted msgline'; gnote.textContent = t('Building your plan…'); plan.innerHTML = '';
+      const v = Object.fromEntries(new FormData(gf)); v.daily_budget = +v.daily_budget;
+      let r; try { r = await api('/campaigns/plan', { method: 'POST', body: v }); } catch (x) { gnote.className = 'toast msgline'; gnote.textContent = x.message; return; }
+      gnote.textContent = '';
+      plan.innerHTML = `<h3>${t('Your plan')}</h3><p>${esc(t(r.summary))}</p>
+        <div class="plan">${r.campaigns.map(c => `<div class="plan-item"><b>${esc(c.name)}</b>
+          <div class="muted">${esc(t(OBJ[c.objective] || c.objective))} · ${money(c.daily_budget)} ${t('per day')}</div>
+          <div>${t('Who sees it')}: ${esc(c.audience)}</div><div>${t('Ad')}: “${esc(c.headline)}”</div><small class="muted">${esc(t(c.why))}</small></div>`).join('')}</div>
+        <p class="muted">${t('Total')}: ${money(r.campaigns.reduce((a, c) => a + c.daily_budget, 0))} ${t('per day')}</p>
+        <button class="pri" id="mkplan">${t('Create these campaigns')}</button> <span class="muted msgline" id="plannote"></span>`;
+      $('#mkplan').onclick = async ev => {
+        ev.target.disabled = true; const pn = $('#plannote'); let sync = '';
+        try { for (const c of r.campaigns) { const { why, ...body } = c; const x = await api('/campaigns', { method: 'POST', body }); if (x.sync_error) sync = x.sync_error; } }
+        catch (x) { pn.className = 'toast msgline'; pn.textContent = x.message; ev.target.disabled = false; return; }
+        if (sync) alert(t('Saved locally; platform sync failed: {e}', { e: sync }));
+        views.campaigns(el);
+      };
+    };
     $('#f').onsubmit = async e => {
       e.preventDefault();
       const b = Object.fromEntries(new FormData(e.target));

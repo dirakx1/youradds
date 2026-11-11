@@ -82,6 +82,22 @@ class ApiDatabaseTests(DatabaseTestCase):
         self.assertEqual(copy.status_code, 200)
         self.assertIn("Café 500 g", copy.json()["variants"][0]["headline"])
 
+    def test_goal_plan_builds_structure_without_creating_anything(self):
+        brand = {"name": "Café La Montaña", "ideal_customer": "Mujeres 25-45 en Medellín", "tone": "cercano",
+                 "products": [{"name": "Café 500 g", "description": "Grano de origen", "price": "$38.000"}]}
+        self.assertEqual(self.client.post("/api/campaigns/plan", json={"goal": "sales"}).status_code, 400)   # no brand, no product
+        self.client.put("/api/brand", json=brand)
+        for goal, objectives in (("awareness", ["awareness", "traffic"]), ("sales", ["sales", "sales"]),
+                                 ("recover", ["sales", "whatsapp"])):
+            plan = self.client.post("/api/campaigns/plan", json={"goal": goal, "daily_budget": 100000}).json()
+            self.assertEqual([c["objective"] for c in plan["campaigns"]], objectives)
+            self.assertEqual(sum(c["daily_budget"] for c in plan["campaigns"]), 100000)
+            self.assertTrue(all("Café 500 g" in c["name"] and c["audience"] for c in plan["campaigns"]))
+        self.assertEqual(self.client.get("/api/campaigns").json(), [])                                  # preview only
+        self.assertEqual(self.client.post("/api/campaigns/plan", json={"goal": "nope"}).status_code, 422)
+        created = self.client.post("/api/campaigns", json={k: v for k, v in plan["campaigns"][0].items() if k != "why"})
+        self.assertEqual(created.status_code, 201)
+
     def test_credentials_mask_settings_and_whatsapp_attribution(self):
         from app import whatsapp
         user_id = self.user_ids["user_one"]
