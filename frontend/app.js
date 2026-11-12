@@ -1,5 +1,5 @@
-import { auth } from './auth.js?v=brand-10';
-import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-10';
+import { auth } from './auth.js?v=brand-11';
+import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-11';
 
 const authPollers = new Set();
 
@@ -142,7 +142,7 @@ async function creativesPanel(el, refresh) {
         <label>Language<select name="language">${Object.entries(opt.languages).map(([k, v]) => `<option value="${k}">${v}`).join('')}</select></label>
         <label>Tone<select name="tone"><option>friendly<option>bold<option>professional<option>playful<option>urgent</select></label>
         <label>Theme<select name="theme">${opt.themes.map(t => `<option>${t}`).join('')}</select></label>
-        <label>${t('Button link: web page or WhatsApp number')}<input name="link" maxlength="300" placeholder="https://mitienda.co  ·  3001234567"></label>
+        <label>${t('Button link: web page or WhatsApp number')}<input name="link" maxlength="300" placeholder="${t('Empty = your brand website or WhatsApp')}"></label>
         <label>Price badge (optional)<input name="price" maxlength="20" placeholder="$119.900 COP"></label>
         <label>Rating line (optional, must be true)<input name="social_proof" maxlength="50" placeholder="4.8/5 from 1,200 reviews"></label>
         <label>Product image (PNG, transparent bg works best)<input type="file" name="img" accept="image/png,image/jpeg,image/webp"></label>
@@ -282,7 +282,7 @@ async function videosPanel(el) {
         <label>Theme<select name="theme">${opt.themes.map(t => `<option>${t}`).join('')}</select></label>
         <label>Length<select name="duration"><option>4<option selected>5<option>8<option>10<option>15</select></label>
         <label>Quality<select name="resolution"><option value="480p">Draft 480p (~$0.21/s)<option value="720p" selected>Standard 720p (~$0.46/s)</select></label>
-        <label>${t('Button link: web page or WhatsApp number')}<input name="link" maxlength="300" placeholder="https://mitienda.co  ·  3001234567"></label>
+        <label>${t('Button link: web page or WhatsApp number')}<input name="link" maxlength="300" placeholder="${t('Empty = your brand website or WhatsApp')}"></label>
         <label>Price badge (optional)<input name="price" maxlength="20"></label>
         <label>Rating line (optional, must be true)<input name="social_proof" maxlength="50"></label>
         <label>Product image (PNG, transparent bg)<input type="file" name="img" accept="image/png,image/jpeg,image/webp"></label>
@@ -387,6 +387,7 @@ const views = {
     const summary = () => `<div class="card"><h3>${esc(state.name)}</h3>
       <p>${esc(state.story)}</p>
       <p><b>${t('Ideal customer')}:</b> ${esc(state.ideal_customer)}<br><b>${t('Tone')}:</b> ${esc(state.tone || '–')}</p>
+      ${state.website || state.whatsapp ? `<p><b>${t('Ad buttons open')}:</b> ${esc(state.website || '')}${state.website && state.whatsapp ? ' · ' : ''}${state.whatsapp ? 'WhatsApp ' + esc(state.whatsapp) : ''}</p>` : `<p class="muted">${t('Add your website or WhatsApp so the ad buttons go somewhere.')}</p>`}
       <p><b>${t('Products')}:</b></p><ul>${state.products.map(p => `<li>${esc(p.name)} ${p.price ? '· ' + esc(p.price) : ''}</li>`).join('')}</ul>
       ${state.palette.length ? `<p>${state.palette.map(c => `<span style="display:inline-block;width:28px;height:28px;border-radius:6px;background:${esc(c)};margin-right:6px;vertical-align:middle" title="${esc(c)}"></span>`).join('')}</p>` : ''}
       <p class="muted">${t('Every creative, video, copy and WhatsApp reply now uses this. You never have to enter it again.')}</p>
@@ -412,7 +413,7 @@ const views = {
         else { const raw = new FormData(e.target).get('a').trim(); state[q.field] = brandParse[q.field] ? brandParse[q.field](raw) : raw; }
         if (!last) return step(i + 1);
         try {
-          const r = await api('/brand', { method: 'PUT', body: Object.fromEntries(['name', 'story', 'tone', 'language', 'currency', 'palette', 'fonts', 'ideal_customer', 'objections', 'limits', 'products', 'reviews'].map(k => [k, state[k] ?? (brandParse[k] ? [] : '')])) });
+          const r = await api('/brand', { method: 'PUT', body: Object.fromEntries(['name', 'story', 'tone', 'language', 'currency', 'palette', 'fonts', 'ideal_customer', 'objections', 'limits', 'website', 'whatsapp', 'products', 'reviews'].map(k => [k, state[k] ?? (brandParse[k] ? [] : '')])) });
           Object.assign(state, r);
           if (!r.completed) { $('#err', el).textContent = t('Add at least your business name, one product and your ideal customer.'); return; }
           brandCache = r; done();

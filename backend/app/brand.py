@@ -19,7 +19,8 @@ router = APIRouter(prefix="/api/brand", dependencies=[Depends(current_user)])
 
 HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 JSON_FIELDS = ("palette", "products", "reviews")
-TEXT_FIELDS = ("name", "story", "tone", "language", "currency", "fonts", "ideal_customer", "objections", "limits")
+TEXT_FIELDS = ("name", "story", "tone", "language", "currency", "fonts", "ideal_customer", "objections", "limits",
+               "website", "whatsapp")
 
 # The guided interview: (field, Spanish question, hint). The frontend walks these in order and saves as it goes.
 INTERVIEW = [
@@ -31,8 +32,34 @@ INTERVIEW = [
     ("objections", "¿Qué dudas o excusas ponen tus clientes para no comprar?", "Ej.: “Es caro”, “no sé si llega a mi ciudad”."),
     ("reviews", "¿Qué reseñas reales te han dejado? Una por línea: nombre: comentario. Solo reales, nunca inventadas.", "Puedes dejarlo vacío."),
     ("limits", "¿Qué nunca debemos decir o mostrar en tus anuncios?", "Ej.: no prometer resultados médicos, no hablar de la competencia."),
+    ("website", "¿Cuál es la página web o tienda en línea de tu negocio?", "Ej.: mitienda.co o https://instagram.com/mitienda. Puedes dejarlo vacío."),
+    ("whatsapp", "¿Cuál es tu número de WhatsApp para atender a tus clientes?", "Ej.: 300 123 4567. Los botones de tus anuncios abrirán este chat si no hay página web."),
     ("palette", "¿Cuáles son los colores de tu marca? Elige hasta tres con la paleta.", ""),
 ]
+
+
+def normalize_link(raw: str) -> str:
+    """A web address or a WhatsApp number -> a clickable https URL ('' when empty)."""
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+    digits = re.sub(r"[\s().+-]", "", raw)
+    if digits.isdigit() and 7 <= len(digits) <= 15:
+        if len(digits) == 10 and digits.startswith("3"):      # Colombian mobile without the country code
+            digits = "57" + digits
+        return "https://wa.me/" + digits
+    if not re.match(r"^https?://", raw, re.I):
+        raw = "https://" + raw
+    if not re.match(r"^https?://[^\s/]+\.[^\s/]+", raw, re.I):
+        raise HTTPException(400, "The button link must be a web address or a WhatsApp number")
+    return raw
+
+
+def button_link(b: Optional[dict]) -> str:
+    """Where an ad button goes by default: the brand's website, else its WhatsApp chat."""
+    if not b:
+        return ""
+    return normalize_link(b.get("website", "")) or normalize_link(b.get("whatsapp", ""))
 
 
 class Product(BaseModel):
@@ -57,8 +84,27 @@ class BrandIn(BaseModel):
     ideal_customer: str = Field("", max_length=500)
     objections: str = Field("", max_length=800)
     limits: str = Field("", max_length=800)
+    website: str = Field("", max_length=300)
+    whatsapp: str = Field("", max_length=30)
     products: list[Product] = Field(default_factory=list, max_length=10)
     reviews: list[Review] = Field(default_factory=list, max_length=10)
+
+    @field_validator("website")
+    @classmethod
+    def _site(cls, v):
+        try:
+            normalize_link(v)
+        except HTTPException:
+            raise ValueError("website must be a web address")
+        return v
+
+    @field_validator("whatsapp")
+    @classmethod
+    def _wa(cls, v):
+        d = re.sub(r"[\s().+-]", "", v or "")
+        if d and not (d.isdigit() and 7 <= len(d) <= 15):
+            raise ValueError("WhatsApp must be a phone number")
+        return v
 
     @field_validator("palette")
     @classmethod
@@ -159,6 +205,9 @@ def fill(user_id: int, body, *, kind: str) -> Optional[dict]:
                 body.description = product["description"]
             if hasattr(body, "price") and not body.price:
                 body.price = product["price"]
+        for attr in ("link", "landing_url"):                  # the button / page defaults to the brand's own
+            if hasattr(body, attr) and not getattr(body, attr):
+                setattr(body, attr, button_link(b))
         if hasattr(body, "audience") and not body.audience:
             body.audience = b["ideal_customer"][:120]
         if hasattr(body, "tone") and not body.tone:

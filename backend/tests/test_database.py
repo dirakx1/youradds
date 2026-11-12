@@ -148,7 +148,7 @@ class DatabaseTests(DatabaseTestCase):
             command.downgrade(cfg, "0001_postgres")
         with self.engine.connect() as connection:
             self.assertEqual(connection.execute(text("SELECT version_num FROM yourads.alembic_version")).scalar_one(),
-                             "0004_creative_link")
+                             "0005_brand_contact")
         with session_scope() as session:
             session.execute(text("DELETE FROM yourads.users WHERE email='clerk-only@example.test'"))
         command.downgrade(cfg, "0001_postgres")
@@ -157,7 +157,7 @@ class DatabaseTests(DatabaseTestCase):
             self.assertIsNotNone(c.execute(text("SELECT to_regclass('yourads.users')")).scalar_one())
         command.upgrade(cfg, "head")
         with self.engine.connect() as c:
-            self.assertEqual(c.execute(text("SELECT version_num FROM yourads.alembic_version")).scalar_one(), "0004_creative_link")
+            self.assertEqual(c.execute(text("SELECT version_num FROM yourads.alembic_version")).scalar_one(), "0005_brand_contact")
 
     def test_supplied_alembic_connection_keeps_transaction_caller_owned(self):
         from alembic import command
@@ -170,7 +170,7 @@ class DatabaseTests(DatabaseTestCase):
             command.downgrade(cfg, "base")
             with self.engine.connect() as observer:
                 self.assertEqual(observer.execute(text("SELECT version_num FROM yourads.alembic_version")).scalar_one(),
-                                 "0004_creative_link")
+                                 "0005_brand_contact")
                 self.assertIsNotNone(observer.execute(text("SELECT to_regclass('yourads.users')")).scalar_one())
         cfg.attributes.pop("connection", None)
         with self.engine.connect() as observer:

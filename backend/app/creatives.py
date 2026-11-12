@@ -45,21 +45,7 @@ class GenIn(BaseModel):
     product_image: Optional[str] = None                # base64 (PNG with transparent background works best)
 
 
-def normalize_link(raw: str) -> str:
-    """A web address or a WhatsApp number -> a clickable https URL ('' when empty)."""
-    raw = (raw or "").strip()
-    if not raw:
-        return ""
-    digits = re.sub(r"[\s().+-]", "", raw)
-    if digits.isdigit() and 7 <= len(digits) <= 15:
-        if len(digits) == 10 and digits.startswith("3"):      # Colombian mobile without the country code
-            digits = "57" + digits
-        return "https://wa.me/" + digits
-    if not re.match(r"^https?://", raw, re.I):
-        raw = "https://" + raw
-    if not re.match(r"^https?://[^\s/]+\.[^\s/]+", raw, re.I):
-        raise HTTPException(400, "The button link must be a web address or a WhatsApp number")
-    return raw
+normalize_link = brand.normalize_link
 
 
 def _decode_image(b64: str) -> Image.Image:

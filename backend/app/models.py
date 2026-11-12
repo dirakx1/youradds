@@ -170,6 +170,8 @@ class Brand(Base):
     ideal_customer: Mapped[str | None] = mapped_column(Text)
     objections: Mapped[str | None] = mapped_column(Text)
     limits: Mapped[str | None] = mapped_column(Text)           # things the brand never says or shows
+    website: Mapped[str | None] = mapped_column(Text)
+    whatsapp: Mapped[str | None] = mapped_column(Text)
     products: Mapped[str | None] = mapped_column(Text)        # JSON list of {name, description, price}
     reviews: Mapped[str | None] = mapped_column(Text)          # JSON list of {name, text}; real ones only
     completed_at: Mapped[str | None] = mapped_column(Text)

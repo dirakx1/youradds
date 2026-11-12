@@ -117,6 +117,22 @@ class ApiDatabaseTests(DatabaseTestCase):
         self.client.post("/api/creatives/generate", json={"platforms": ["meta"]})
         self.assertTrue(any(not c["link"] and not c["cta"] for c in self.client.get("/api/creatives").json()))
 
+    def test_brand_website_and_whatsapp_feed_the_button_link(self):
+        base = {"name": "Café", "ideal_customer": "Todos", "products": [{"name": "Café 500 g", "description": "", "price": ""}]}
+        self.assertEqual(self.client.put("/api/brand", json={**base, "whatsapp": "abc"}).status_code, 422)
+        self.assertEqual(self.client.put("/api/brand", json={**base, "website": "no es web"}).status_code, 422)
+        self.client.put("/api/brand", json={**base, "whatsapp": "300 123 4567"})
+        self.client.post("/api/creatives/generate", json={"platforms": ["meta"]})
+        self.assertEqual({c["link"] for c in self.client.get("/api/creatives").json()}, {"https://wa.me/573001234567"})
+        self.client.put("/api/brand", json={**base, "whatsapp": "300 123 4567", "website": "mitienda.co"})
+        self.client.post("/api/creatives/generate", json={"platforms": ["tiktok"], "link": "3109998888"})
+        links = {(c["platform"], c["link"]) for c in self.client.get("/api/creatives").json()}
+        self.assertIn(("tiktok", "https://wa.me/573109998888"), links)           # an explicit link wins
+        self.client.post("/api/creatives/generate", json={"platforms": ["google"]})
+        self.assertIn(("google", "https://mitienda.co"), {(c["platform"], c["link"]) for c in self.client.get("/api/creatives").json()})
+        plan = self.client.post("/api/campaigns/plan", json={"goal": "sales"}).json()
+        self.assertTrue(all(c["landing_url"] == "https://mitienda.co" for c in plan["campaigns"]))
+
     def test_meta_results_sync_fills_known_campaigns_only_and_is_repeatable(self):
         import os
         from datetime import date, timedelta
