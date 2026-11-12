@@ -45,9 +45,12 @@ def valid_theme(theme: str) -> bool:
     return theme in THEMES or bool(re.fullmatch(r"brand:#[0-9a-f]{6}(,#[0-9a-f]{6}){0,2}", theme))
 
 
-_BOLD = [os.getenv("CREATIVE_FONT_BOLD", ""), "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+# The bundled DejaVu Sans covers every Spanish/Portuguese/French/German accent. It is tried first so the server
+# (which ships no fonts at all) renders exactly like a developer machine; Pillow's built-in fallback garbles accents.
+_FONTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
+_BOLD = [os.getenv("CREATIVE_FONT_BOLD", ""), os.path.join(_FONTS, "DejaVuSans-Bold.ttf"), "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
          "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "C:/Windows/Fonts/arialbd.ttf"]
-_REG = [os.getenv("CREATIVE_FONT_REGULAR", ""), "/System/Library/Fonts/Supplemental/Arial.ttf",
+_REG = [os.getenv("CREATIVE_FONT_REGULAR", ""), os.path.join(_FONTS, "DejaVuSans.ttf"), "/System/Library/Fonts/Supplemental/Arial.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "C:/Windows/Fonts/arial.ttf"]
 
 
