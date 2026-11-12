@@ -15,7 +15,7 @@ from .config import PLATFORMS, validate_clerk_config
 from .db import check_database_revision, dispose_engine, engine, session_scope
 from .models import Campaign, Metric
 from .platforms import make as make_platform
-from . import whatsapp, creatives, videos, cutout, pages, goals
+from . import whatsapp, creatives, videos, cutout, pages, goals, insights
 
 
 @asynccontextmanager
@@ -25,14 +25,16 @@ async def lifespan(app):
     await asyncio.to_thread(lambda: engine().connect().close())
     await asyncio.to_thread(videos.recover)
     followups = asyncio.create_task(whatsapp.followup_loop())
+    results = asyncio.create_task(insights.sync_loop())
     try:
         yield
     finally:
-        followups.cancel()
-        try:
-            await followups
-        except asyncio.CancelledError:
-            pass
+        for task in (followups, results):
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
         await asyncio.to_thread(dispose_engine)
 
 
@@ -230,6 +232,17 @@ def import_campaigns(platform: Platform, user: dict = Depends(current_user)):
                                  name=item["name"], status=item["status"], daily_budget=item["daily_budget"]))
             added += 1
     return {"imported": added}
+
+
+@app.post("/api/connections/{platform}/sync-metrics")
+def sync_metrics(platform: Platform, user: dict = Depends(current_user)):
+    """Pull the last 30 days of real results (spend, clicks, sales) for this account's campaigns."""
+    try:
+        return insights.sync_user(user["id"], platform, days=30)
+    except (NotImplementedError, LookupError) as e:
+        raise HTTPException(400, str(e).strip("'\""))
+    except Exception as e:
+        raise HTTPException(400, str(e)[:300])
 
 
 @app.get("/api/dashboard")

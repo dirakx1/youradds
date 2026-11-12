@@ -156,6 +156,11 @@ const ES = {
   'Your videos': 'Tus videos',
   'Make a video (AI background + your product, text and CTA)': 'Crear un video (fondo con IA + tu producto, texto y llamado a la acción)',
   'Also make a video': 'Crear también un video',
+  'Sync results': 'Traer resultados',
+  'Getting your results…': 'Trayendo tus resultados…',
+  'Results updated: {n} day(s) of data.': 'Resultados actualizados: {n} día(s) de datos.',
+  '{n} campaign(s) in Meta are not in youradds yet: import them first.': '{n} campaña(s) de Meta aún no están en youradds: impórtalas primero.',
+  'Your Meta account reports in {cur} but youradds shows {app}: amounts are not converted.': 'Tu cuenta de Meta reporta en {cur} pero youradds muestra {app}: los montos no se convierten.',
   'Which campaign should I scale?': '¿Qué campaña debería escalar?', 'Ask': 'Preguntar', 'Error: {e}': 'Error: {e}',
   // ---- Connections ----
   'These credentials belong to <b>your account only</b>. They are stored encrypted and never shown again after saving - leave a secret blank to keep it.':

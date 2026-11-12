@@ -12,11 +12,13 @@ denied, RATELIMIT -> rate limited. Anything else is accepted.
 
 Run standalone:   python -m devtools.fake_ads --port 9100
 then point the app at it (printed on start):
-  META_GRAPH_URL=http://127.0.0.1:9100/meta/v21.0  TIKTOK_API_URL=http://127.0.0.1:9100/tiktok/open_api/v1.3
+  META_GRAPH_URL=http://127.0.0.1:9100/meta/v26.0  TIKTOK_API_URL=http://127.0.0.1:9100/tiktok/open_api/v1.3
   GOOGLE_ADS_API_URL=http://127.0.0.1:9100/google/v18
 Inspect state at /__state, request log at /__log, wipe with POST /__reset.
 """
 import itertools
+from datetime import date, timedelta
+from urllib.parse import urlencode
 import json
 import re
 import socket
@@ -75,14 +77,45 @@ def build_app() -> FastAPI:
             return meta_err("(#17) User request limit reached.", 17)
         return None
 
-    @app.api_route("/meta/v21.0/{path:path}", methods=["GET", "POST"])
-    async def meta(path: str, request: Request):
+    def meta_insights(acct, p, base_url, request):
+        """Daily campaign rows for every campaign of the account over time_range, 2 rows per page (exercises paging).
+        Campaign names ending in '-leads' report lead actions, others purchases (with values)."""
+        tr = json.loads(p.get("time_range", "{}"))
+        d0, d1 = date.fromisoformat(tr["since"]), date.fromisoformat(tr["until"])
+        rows = []
+        for c in [c for c in state["meta"].values() if c["acct"] == acct]:
+            d = d0
+            while d <= d1:
+                n = int(c["id"]) % 5 + 1
+                row = {"campaign_id": c["id"], "date_start": d.isoformat(), "date_stop": d.isoformat(), "impressions": str(1000 * n),
+                       "clicks": str(30 * n), "spend": f"{12.5 * n:.2f}", "account_currency": state.get("currency", "USD")}
+                if c["name"].endswith("-leads"):
+                    row["actions"] = [{"action_type": "lead", "value": str(n)}]
+                else:
+                    row["actions"] = [{"action_type": "purchase", "value": str(n)}, {"action_type": "omni_purchase", "value": str(n)},
+                                      {"action_type": "link_click", "value": "99"}]
+                    row["action_values"] = [{"action_type": "omni_purchase", "value": f"{40.0 * n:.2f}"}, {"action_type": "purchase", "value": "1.00"}]
+                rows.append(row)
+                d += timedelta(days=1)
+        page, size = int(p.get("page", 0)), 2
+        chunk = rows[page * size:(page + 1) * size]
+        out = {"data": chunk, "paging": {}}
+        if (page + 1) * size < len(rows):
+            q = {k: v for k, v in p.items() if k != "page"}
+            out["paging"]["next"] = f"{base_url}?{urlencode({**q, 'page': page + 1})}"
+        return out
+
+    @app.api_route("/meta/{version}/{path:path}", methods=["GET", "POST"])
+    async def meta(version: str, path: str, request: Request):
         p = dict(request.query_params)
         if request.method == "POST":
             p.update(parse_qsl((await request.body()).decode(), keep_blank_values=True))   # Graph takes form-encoded bodies
         if (bad := meta_auth(p)):
             return bad
         camps = state["meta"]
+        m = re.fullmatch(r"(act_\d+)/insights", path)
+        if m and request.method == "GET":
+            return meta_insights(m.group(1), p, str(request.url.replace(query="")), request)
         m = re.fullmatch(r"(act_\d+)/campaigns", path)
         if m:
             acct = m.group(1)
@@ -311,7 +344,7 @@ def build_app() -> FastAPI:
 def env_for(base: str) -> dict:
     """The three environment variables that point yourads at a running fake."""
     base = base.rstrip("/")
-    return {"META_GRAPH_URL": f"{base}/meta/v21.0", "TIKTOK_API_URL": f"{base}/tiktok/open_api/v1.3",
+    return {"META_GRAPH_URL": f"{base}/meta/v26.0", "TIKTOK_API_URL": f"{base}/tiktok/open_api/v1.3",
             "GOOGLE_ADS_API_URL": f"{base}/google/v18"}
 
 

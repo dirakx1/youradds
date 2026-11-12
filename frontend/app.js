@@ -1,5 +1,5 @@
-import { auth } from './auth.js?v=brand-8';
-import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-8';
+import { auth } from './auth.js?v=brand-9';
+import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-9';
 
 const authPollers = new Set();
 
@@ -541,6 +541,7 @@ const views = {
             placeholder="${f.secret && f.set ? esc(f.masked) + esc(t(' (saved)')) : esc(t(f.hint || ''))}"></label>`).join('')}</div>
         <button class="pri" type="submit">Save</button>
         ${['meta', 'tiktok', 'google'].includes(c.service) && c.connected ? `<button type="button" data-import="${c.service}">Test &amp; import campaigns</button>` : ''}
+        ${c.service === 'meta' && c.connected ? `<button type="button" data-sync="meta">${t('Sync results')}</button>` : ''}
         ${c.connected && !c.shared ? '<button type="button" data-clear>Disconnect</button>' : ''}
         <button type="button" data-recheck>Re-check</button>
         <span class="muted msgline"></span><p class="toast statusdetail"></p></form>`).join('')}`;
@@ -570,12 +571,22 @@ const views = {
         catch (x) { note.textContent = x.message; note.className = 'toast msgline'; }
       };
       const imp = $('[data-import]', f), clr = $('[data-clear]', f);
+      const syn = $('[data-sync]', f);
       $('[data-recheck]', f).onclick = () => loadStatus(true);
       if (imp) imp.onclick = async () => {
         note.className = 'muted msgline'; note.textContent = t('Contacting {svc}…', { svc });
-        try { const r = await api(`/connections/${svc}/import`, { method: 'POST' }); note.textContent = t('Connection works. Imported {n} new campaign(s).', { n: r.imported }); }
+        try { const r = await api(`/connections/${svc}/import`, { method: 'POST' }); note.textContent = t('Connection works. Imported {n} new campaign(s).', { n: r.imported }); if (svc === 'meta') await syncResults(note); }
         catch (x) { note.textContent = x.message; note.className = 'toast msgline'; }
       };
+      const syncResults = async n => {
+        n.className = 'muted msgline'; n.textContent += ' ' + t('Getting your results…');
+        try {
+          const r = await api('/connections/meta/sync-metrics', { method: 'POST' });
+          n.textContent = t('Results updated: {n} day(s) of data.', { n: r.days }) + (r.unmatched ? ' ' + t('{n} campaign(s) in Meta are not in youradds yet: import them first.', { n: r.unmatched }) : '');
+          if (r.currency_mismatch) { n.className = 'st-warn msgline'; n.textContent += ' ' + t('Your Meta account reports in {cur} but youradds shows {app}: amounts are not converted.', { cur: r.currency, app: currency }); }
+        } catch (x) { n.className = 'toast msgline'; n.textContent = x.message; }
+      };
+      if (syn) syn.onclick = () => syncResults(note);
       if (clr) clr.onclick = async () => { if (confirm(t('Remove the saved {svc} credentials?', { svc }))) { await api('/connections/' + svc, { method: 'DELETE' }); views.connections(el); } };
     });
     loadStatus(false);

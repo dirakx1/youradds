@@ -23,3 +23,8 @@ class AdPlatform(ABC):
 
     @abstractmethod
     def list_campaigns(self) -> list[dict]: ...
+
+    def insights(self, since: str, until: str) -> list[dict]:
+        """Daily per-campaign results [{external_id, day, impressions, clicks, spend, conversions, revenue, currency}].
+        Optional: connectors that cannot report yet raise NotImplementedError."""
+        raise NotImplementedError(f"{self.name} results sync is not available yet")

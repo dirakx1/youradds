@@ -98,6 +98,34 @@ class ApiDatabaseTests(DatabaseTestCase):
         created = self.client.post("/api/campaigns", json={k: v for k, v in plan["campaigns"][0].items() if k != "why"})
         self.assertEqual(created.status_code, 201)
 
+    def test_meta_results_sync_fills_known_campaigns_only_and_is_repeatable(self):
+        import os
+        from datetime import date, timedelta
+        from unittest.mock import patch
+        from devtools.fake_ads import env_for, serve_in_thread
+        base, stop = serve_in_thread()
+        self.addCleanup(stop)
+        with patch.dict(os.environ, env_for(base)):
+            self.assertEqual(self.client.post("/api/connections/meta/sync-metrics").status_code, 400)       # not connected
+            self.client.put("/api/connections/meta", json={"values": {"access_token": "tok", "ad_account_id": "act_900"}})
+            mine = self.client.post("/api/campaigns", json={"platform": "meta", "name": "Mine", "daily_budget": 50000}).json()
+            from app.platforms import make
+            make("meta", {"access_token": "tok", "ad_account_id": "act_900"}).create_campaign(
+                {"name": "Not imported", "objective": "sales", "daily_budget": 1})                           # exists upstream only
+            first = self.client.post("/api/connections/meta/sync-metrics").json()
+            self.assertEqual((first["days"], first["unmatched"], first["currency"]), (30, 1, "USD"))
+            self.assertTrue(first["currency_mismatch"])                                                    # app currency is COP
+            self.assertEqual(self.client.post("/api/connections/meta/sync-metrics").json()["days"], 30)    # upsert, no duplicates
+        from app.db import session_scope
+        from sqlalchemy import func, select
+        from app.models import Metric
+        with session_scope() as s:
+            self.assertEqual(s.scalar(select(func.count()).select_from(Metric).where(Metric.campaign_id == mine["id"])), 30)
+        today = date.today().isoformat()
+        week = self.client.get("/api/dashboard").json()["daily"]
+        self.assertTrue(any(r["spend"] > 0 for r in week))
+        self.assertEqual(self.client.post("/api/connections/tiktok/sync-metrics").status_code, 400)
+
     def test_credentials_mask_settings_and_whatsapp_attribution(self):
         from app import whatsapp
         user_id = self.user_ids["user_one"]
