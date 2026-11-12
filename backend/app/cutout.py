@@ -57,7 +57,7 @@ def model_name() -> str:
 def _get_session():
     global _session, _session_name
     with _lock:
-        name = _session_name or model_name()      # decided once per process: a loaded model stays loaded
+        name = _session_name or model_name()      # decided once per process so results stay consistent
         if _session is None:
             import onnxruntime as ort
             from rembg import new_session
@@ -66,6 +66,20 @@ def _get_session():
             opts.intra_op_num_threads = 2
             _session, _session_name = new_session(name, sess_opts=opts), name   # downloads the model on first use
         return _session
+
+
+def release_session():
+    """Drop the loaded model and hand its memory back to the OS. On the small server a model that stays loaded
+    keeps the app near the low-memory limit, so every cutout loads it fresh (about a second) and frees it again."""
+    global _session
+    with _lock:
+        _session = None
+    gc.collect()
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)      # glibc: return freed heap pages to the kernel
+    except (OSError, AttributeError):
+        pass
 
 
 def _white_backdrop(rgb) -> bool:
@@ -174,8 +188,10 @@ def cutout(body: CutIn):
         raise HTTPException(503, "The server is busy right now. Try again in a minute.")
     try:
         with _run:
-            out = remove_background(img)
-        gc.collect()
+            try:
+                out = remove_background(img)
+            finally:
+                release_session()
     except Exception as e:
         raise HTTPException(502, f"background removal failed: {e.__class__.__name__}: {str(e)[:150]}")
     buf = io.BytesIO()
