@@ -145,7 +145,17 @@ def _paste_product(base, prod, box, accent, glow_on=True):
     if bw < 20 or bh < 20:
         return
     p = prod.copy()
+    alpha = p.getchannel("A")
+    bbox = alpha.point(lambda v: 255 if v > 8 else 0).getbbox()
+    if bbox:                                   # cut transparent padding, or the visible product sits off-centre
+        p = p.crop(bbox)
+        alpha = p.getchannel("A")
     p.thumbnail((bw, bh), Image.LANCZOS)
+    if alpha.getextrema()[0] >= 250:           # an ordinary photo (no cut-out): give it soft corners so it reads as a card
+        r = max(6, int(0.05 * min(p.size)))
+        mask = Image.new("L", p.size, 0)
+        ImageDraw.Draw(mask).rounded_rectangle([0, 0, p.width - 1, p.height - 1], radius=r, fill=255)
+        p.putalpha(mask)
     px, py = x0 + (bw - p.width) // 2, y0 + (bh - p.height) // 2
     if glow_on:
         glow = Image.new("RGBA", base.size, (0, 0, 0, 0))
@@ -311,7 +321,7 @@ def render(size, copy, product, theme="purple", price="", social_proof="", ratin
                 yb -= lay[2] + 14 * s
                 info_draw(lay, side, w - side, yb, "center")
                 yb -= 10 * s
-        box = (side, int(header_bottom), w - side, int(yb))
+        box = (side, int(header_bottom + 14 * s), w - side, int(yb))
         placed = _paste_product(img, product, box, accent, scene is None and not overlay) if product else None
         badge_anchor = (box[2], box[3])
     d = ImageDraw.Draw(img)
