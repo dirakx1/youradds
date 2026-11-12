@@ -124,8 +124,8 @@ STYLE = {
     "google": "Direct and informative, like a display ad; no slang. Headline <= {h} chars.",
 }
 FALLBACK = {
-    "en": ("{p}: Made for You", "Discover {p}", ["Easy to use", "Great value", "Fast delivery"], "Shop Now"),
-    "es": ("{p}: Hecho para ti", "Descubre {p}", ["Fácil de usar", "Gran valor", "Envío rápido"], "Compra ya"),
+    "en": ("{p}: Made for You", "Discover {p}", [], "Shop Now"),
+    "es": ("{p}: Hecho para ti", "Descubre {p}", [], "Compra ya"),
 }
 
 
@@ -142,11 +142,10 @@ def creative_copy(platform: str, product: str, description: str, audience: str, 
                 f"Language: {language}\nPlatform style: {STYLE[platform].format(h=h_lim)}\nProduct: {product}\n"
                 f"Description: {description or 'n/a'}\nAudience: {audience or 'general'}\nTone: {tone}\n"
                 "JSON keys: headline, accent (one word copied from the headline to highlight), "
-                "subheadline (<= 60 chars), bullets (exactly 3 items, <= 18 chars each, based only on the brief), "
-                "cta (<= 18 chars).", 600)
+                "subheadline (<= 60 chars), cta (<= 18 chars).", 600)
             d = json.loads(re.search(r"\{.*\}", out, re.S).group(0))
             d["headline"] = str(d["headline"])[:h_lim + 15]
-            d["bullets"] = [str(b)[:22] for b in d.get("bullets", [])][:3]
+            d["bullets"] = []          # no generic benefit chips: only facts the owner wrote may appear on the image
             d["subheadline"] = str(d.get("subheadline", ""))[:70]
             d["cta"] = str(d.get("cta", "Learn More"))[:20]
             d["accent"] = str(d.get("accent", ""))

@@ -122,6 +122,7 @@ class Creative(Base):
     headline: Mapped[str | None] = mapped_column(Text)
     subheadline: Mapped[str | None] = mapped_column(Text)
     cta: Mapped[str | None] = mapped_column(Text)
+    link: Mapped[str | None] = mapped_column(Text)
     language: Mapped[str | None] = mapped_column(Text)
     campaign_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey(f"{SCHEMA}.campaigns.id", ondelete="SET NULL"))
     created_at: Mapped[str | None] = mapped_column(Text, server_default=UTC_NOW)

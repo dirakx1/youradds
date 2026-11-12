@@ -1,6 +1,7 @@
 import base64
 import binascii
 import io
+import re
 import uuid
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
@@ -40,7 +41,25 @@ class GenIn(BaseModel):
     testimonials: list[Testimonial] = Field(default_factory=list, max_length=3)  # real ones only
     scene: bool = False                                # AI background scenes via Higgsfield
     scene_hint: str = Field("", max_length=200)        # optional art direction, e.g. "cozy bedroom at night"
+    link: str = Field("", max_length=300)              # where the button goes: a web page or a WhatsApp number
     product_image: Optional[str] = None                # base64 (PNG with transparent background works best)
+
+
+def normalize_link(raw: str) -> str:
+    """A web address or a WhatsApp number -> a clickable https URL ('' when empty)."""
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+    digits = re.sub(r"[\s().+-]", "", raw)
+    if digits.isdigit() and 7 <= len(digits) <= 15:
+        if len(digits) == 10 and digits.startswith("3"):      # Colombian mobile without the country code
+            digits = "57" + digits
+        return "https://wa.me/" + digits
+    if not re.match(r"^https?://", raw, re.I):
+        raw = "https://" + raw
+    if not re.match(r"^https?://[^\s/]+\.[^\s/]+", raw, re.I):
+        raise HTTPException(400, "The button link must be a web address or a WhatsApp number")
+    return raw
 
 
 def _decode_image(b64: str) -> Image.Image:
@@ -127,6 +146,7 @@ def generate(body: GenIn, user: dict = Depends(current_user)):
         raise HTTPException(400, "unknown theme")
     if body.language not in LANGS:
         raise HTTPException(400, "unsupported language")
+    link = normalize_link(body.link)
     product = _decode_image(body.product_image) if body.product_image else None
     CREATIVES_DIR.mkdir(parents=True, exist_ok=True)
     tests = [t for t in (x if isinstance(x, dict) else x.model_dump() for x in body.testimonials)
@@ -142,6 +162,8 @@ def generate(body: GenIn, user: dict = Depends(current_user)):
     for platform in dict.fromkeys(body.platforms):
         copy = ai.creative_copy(platform, body.product, body.description, body.audience, body.tone,
                                 LANGS[body.language], body.language, brand.prompt_block(b))
+        if not link:
+            copy = {**copy, "cta": ""}          # a button that goes nowhere is not drawn
         for fmt, size in FORMATS[platform].items():
             img = render(size, copy, product, body.theme, body.price, body.social_proof, testimonials=tests,
                          scene=scenes.get(imagegen.nearest_ratio(*size)))
@@ -150,7 +172,7 @@ def generate(body: GenIn, user: dict = Depends(current_user)):
             with session_scope() as session:
                 creative = Creative(user_id=user["id"], platform=platform, format=fmt, width=size[0], height=size[1],
                                     file=fname, headline=copy["headline"], subheadline=copy.get("subheadline", ""),
-                                    cta=copy.get("cta", ""), language=body.language)
+                                    cta=copy.get("cta", ""), link=link, language=body.language)
                 session.add(creative)
                 session.flush()
                 creative_id = creative.id
@@ -163,7 +185,7 @@ def generate(body: GenIn, user: dict = Depends(current_user)):
 @router.get("")
 def list_creatives(user: dict = Depends(current_user)):
     columns = [Creative.id, Creative.platform, Creative.format, Creative.width, Creative.height, Creative.headline,
-               Creative.subheadline, Creative.cta, Creative.language, Creative.campaign_id, Creative.created_at]
+               Creative.subheadline, Creative.cta, Creative.link, Creative.language, Creative.campaign_id, Creative.created_at]
     with session_scope() as session:
         return [dict(r) for r in session.execute(select(*columns).where(Creative.user_id == user["id"])
                                                  .order_by(Creative.id.desc()).limit(200)).mappings()]
@@ -188,7 +210,7 @@ class AttachIn(BaseModel):
 def attach(cid: int, body: AttachIn, user: dict = Depends(current_user)):
     """Link the creative to a campaign and copy its text onto the campaign."""
     with session_scope() as session:
-        cr = session.execute(select(Creative.headline, Creative.subheadline, Creative.cta)
+        cr = session.execute(select(Creative.headline, Creative.subheadline, Creative.cta, Creative.link)
                              .where(Creative.id == cid, Creative.user_id == user["id"])).mappings().one_or_none()
         camp = session.scalar(select(Campaign.id).where(Campaign.id == body.campaign_id,
                                                          Campaign.user_id == user["id"]))
@@ -197,7 +219,8 @@ def attach(cid: int, body: AttachIn, user: dict = Depends(current_user)):
         session.execute(update(Creative).where(Creative.id == cid, Creative.user_id == user["id"])
                         .values(campaign_id=body.campaign_id))
         session.execute(update(Campaign).where(Campaign.id == body.campaign_id, Campaign.user_id == user["id"])
-                        .values(headline=cr["headline"], body=cr["subheadline"], cta=cr["cta"]))
+                        .values(headline=cr["headline"], body=cr["subheadline"], cta=cr["cta"],
+                                **({"landing_url": cr["link"]} if cr["link"] else {})))
     return {"ok": True}
 
 

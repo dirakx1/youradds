@@ -98,6 +98,25 @@ class ApiDatabaseTests(DatabaseTestCase):
         created = self.client.post("/api/campaigns", json={k: v for k, v in plan["campaigns"][0].items() if k != "why"})
         self.assertEqual(created.status_code, 201)
 
+    def test_creative_button_link_and_no_default_benefit_chips(self):
+        from app import ai
+        from app.creatives import normalize_link
+        self.assertEqual(normalize_link("3001234567"), "https://wa.me/573001234567")
+        self.assertEqual(normalize_link("+57 300 123 4567"), "https://wa.me/573001234567")
+        self.assertEqual(normalize_link("mitienda.co"), "https://mitienda.co")
+        self.assertEqual(normalize_link(""), "")
+        for lang in ("es", "en"):
+            self.assertEqual(ai.creative_copy("meta", "Café", "", "", "cercano", "x", lang)["bullets"], [])
+        self.client.put("/api/brand", json={"name": "Café", "ideal_customer": "Todos",
+                                            "products": [{"name": "Café 500 g", "description": "", "price": ""}]})
+        self.assertEqual(self.client.post("/api/creatives/generate", json={"platforms": ["meta"], "link": "no es un enlace"}).status_code, 400)
+        r = self.client.post("/api/creatives/generate", json={"platforms": ["meta"], "link": "3001234567"})
+        self.assertEqual(r.status_code, 200, r.text)
+        rows = self.client.get("/api/creatives").json()
+        self.assertTrue(rows and all(c["link"] == "https://wa.me/573001234567" and c["cta"] for c in rows))
+        self.client.post("/api/creatives/generate", json={"platforms": ["meta"]})
+        self.assertTrue(any(not c["link"] and not c["cta"] for c in self.client.get("/api/creatives").json()))
+
     def test_meta_results_sync_fills_known_campaigns_only_and_is_repeatable(self):
         import os
         from datetime import date, timedelta

@@ -1,5 +1,5 @@
-import { auth } from './auth.js?v=brand-9';
-import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-9';
+import { auth } from './auth.js?v=brand-10';
+import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-10';
 
 const authPollers = new Set();
 
@@ -130,6 +130,7 @@ async function creativesPanel(el, refresh) {
     const label = { meta: 'Meta', tiktok: 'TikTok', google: 'Google' };
     const gallery = items => items.map(c => `<div class="card" style="margin:0"><img src="/api/creatives/${c.id}/image" alt="" loading="lazy" style="width:100%;max-height:340px;object-fit:contain;border-radius:8px;background:#000">
       <p style="margin:8px 0 4px">${pill(c.platform)} <span class="muted">${esc(c.format)} · ${c.width}×${c.height}</span></p>
+      ${c.link ? `<p style="margin:0 0 6px"><a class="cta-link" href="${esc(c.link)}" target="_blank" rel="noopener">${esc(c.cta || t('Open link'))} →</a> <span class="muted">${esc(c.link.replace(/^https?:\/\//, ''))}</span></p>` : ''}
       <div style="display:flex;gap:6px;flex-wrap:wrap"><a href="/api/creatives/${c.id}/image?download=true"><button type="button">Download</button></a>
       <select data-attach="${c.id}"><option value="">Attach to campaign…</option>${camps.filter(k => k.platform === c.platform).map(k => `<option value="${k.id}" ${k.id === c.campaign_id ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}</select>
       <button type="button" data-del="${c.id}">✕</button></div></div>`).join('');
@@ -141,6 +142,7 @@ async function creativesPanel(el, refresh) {
         <label>Language<select name="language">${Object.entries(opt.languages).map(([k, v]) => `<option value="${k}">${v}`).join('')}</select></label>
         <label>Tone<select name="tone"><option>friendly<option>bold<option>professional<option>playful<option>urgent</select></label>
         <label>Theme<select name="theme">${opt.themes.map(t => `<option>${t}`).join('')}</select></label>
+        <label>${t('Button link: web page or WhatsApp number')}<input name="link" maxlength="300" placeholder="https://mitienda.co  ·  3001234567"></label>
         <label>Price badge (optional)<input name="price" maxlength="20" placeholder="$119.900 COP"></label>
         <label>Rating line (optional, must be true)<input name="social_proof" maxlength="50" placeholder="4.8/5 from 1,200 reviews"></label>
         <label>Product image (PNG, transparent bg works best)<input type="file" name="img" accept="image/png,image/jpeg,image/webp"></label>
@@ -160,7 +162,7 @@ async function creativesPanel(el, refresh) {
       const testimonials = (fd.get('tests') || '').split('\n').map(l => l.trim()).filter(l => l.includes(':'))
         .map(l => ({ name: l.slice(0, l.indexOf(':')).trim(), text: l.slice(l.indexOf(':') + 1).trim() }));
       const body = { platforms, testimonials };
-      for (const k of ['product', 'description', 'audience', 'language', 'tone', 'theme', 'price', 'social_proof']) body[k] = fd.get(k) || '';
+      for (const k of ['product', 'description', 'audience', 'language', 'tone', 'theme', 'price', 'social_proof', 'link']) body[k] = fd.get(k) || '';
       const f = fd.get('img'); if (f && f.size) { if (f.size > 8e6) return $('#cerr', el).textContent = t('Image over 8MB'); body.product_image = await file(f); }
       body.scene = fd.get('scene') === 'on'; body.scene_hint = fd.get('scene_hint') || '';
       btn.disabled = true; btn.textContent = t('Generating…');
@@ -212,7 +214,7 @@ async function goalPlanner(box, onCreated) {
             <label>${t('Platform')}<select name="platform"><option value="meta">Meta (Facebook + Instagram)<option value="tiktok">TikTok<option value="google">Google</select></label>
             <label>${t('Product')}${prods.length ? `<select name="product">${prods.map(n => `<option>${esc(n)}`).join('')}</select>` : `<input name="product" required>`}</label>
             <label>${t('Total daily budget')} (${currency})<input name="daily_budget" type="number" min="1" step="any" value="${currency === 'COP' ? 50000 : 20}"></label>
-            <label>${t('Page or store link (optional)')}<input name="landing_url" type="url" placeholder="https://"></label>
+            <label>${t('Page, store or WhatsApp number (for the button)')}<input name="landing_url" placeholder="https://  ·  3001234567"></label>
           </div>
           <button class="pri">${t('Build my plan')}</button> <span class="muted msgline" id="goalnote"></span></form>
         <div id="plan"></div></div>`;
@@ -280,6 +282,7 @@ async function videosPanel(el) {
         <label>Theme<select name="theme">${opt.themes.map(t => `<option>${t}`).join('')}</select></label>
         <label>Length<select name="duration"><option>4<option selected>5<option>8<option>10<option>15</select></label>
         <label>Quality<select name="resolution"><option value="480p">Draft 480p (~$0.21/s)<option value="720p" selected>Standard 720p (~$0.46/s)</select></label>
+        <label>${t('Button link: web page or WhatsApp number')}<input name="link" maxlength="300" placeholder="https://mitienda.co  ·  3001234567"></label>
         <label>Price badge (optional)<input name="price" maxlength="20"></label>
         <label>Rating line (optional, must be true)<input name="social_proof" maxlength="50"></label>
         <label>Product image (PNG, transparent bg)<input type="file" name="img" accept="image/png,image/jpeg,image/webp"></label>
@@ -431,7 +434,7 @@ const views = {
     await goalPlanner($('#sp-goal', el), async (plan, v) => {
       const pn = $('#plannote', el);
       try {
-        const r = await api('/creatives/generate', { method: 'POST', body: { platforms: [v.platform], product: v.product } });
+        const r = await api('/creatives/generate', { method: 'POST', body: { platforms: [v.platform], product: v.product, link: v.landing_url || '' } });
         pn.textContent = t('Done! Campaigns and creatives are ready. Attach a creative to each campaign below.');
         if (r.warnings && r.warnings.length) alert(r.warnings.join('\n'));
       } catch (x) { pn.className = 'toast msgline'; pn.textContent = t('Campaigns created, but creatives failed: {e}', { e: x.message }); }
