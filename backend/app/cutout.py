@@ -5,6 +5,7 @@
 import base64
 import binascii
 import io
+import gc
 import threading
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,7 +17,23 @@ from .auth import current_user
 router = APIRouter(prefix="/api/tools", dependencies=[Depends(current_user)])
 MAX_B64 = 8 * 1024 * 1024 * 4 // 3 + 16
 _session = None
+_session_name = None
 _lock = threading.Lock()
+_run = threading.Lock()          # one cutout at a time: two in parallel would double the peak memory
+MAX_SIDE = 1200                  # working size; the small server (<1 GB RAM) cannot afford more
+MIN_FREE_MB = 250                # refuse politely instead of letting the kernel kill the whole app
+BIG_MODEL_MB = 1500              # the best model needs ~1 GB at peak; below this much free memory use the light one
+
+
+def free_mb():
+    """Memory the kernel could still hand out (Linux); None where it cannot be read."""
+    try:
+        for line in open("/proc/meminfo"):
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) // 1024
+    except OSError:
+        pass
+    return None
 
 
 def available() -> bool:
@@ -27,12 +44,27 @@ def available() -> bool:
         return False
 
 
+def model_name() -> str:
+    """CUTOUT_MODEL forces one; otherwise the accurate IS-Net when memory allows, else the light U2-Net-P."""
+    from .config import env
+    forced = env("CUTOUT_MODEL")
+    if forced:
+        return forced
+    free = free_mb()
+    return "isnet-general-use" if free is None or free >= BIG_MODEL_MB else "u2netp"
+
+
 def _get_session():
-    global _session
+    global _session, _session_name
     with _lock:
+        name = _session_name or model_name()      # decided once per process: a loaded model stays loaded
         if _session is None:
+            import onnxruntime as ort
             from rembg import new_session
-            _session = new_session("isnet-general-use")   # downloads ~180MB on first use
+            opts = ort.SessionOptions()
+            opts.enable_cpu_mem_arena = False        # hand memory back after each run instead of hoarding it
+            opts.intra_op_num_threads = 2
+            _session, _session_name = new_session(name, sess_opts=opts), name   # downloads the model on first use
         return _session
 
 
@@ -77,13 +109,15 @@ def remove_background(img: Image.Image) -> Image.Image:
     import numpy as np
     from rembg import remove
     img = img.convert("RGB")
-    img.thumbnail((2000, 2000), Image.LANCZOS)
+    img.thumbnail((MAX_SIDE, MAX_SIDE), Image.LANCZOS)
     rgb = np.array(img)
     h, w = rgb.shape[:2]
     rem = np.array(remove(img, session=_get_session()).convert("RGBA"))
-    alpha = rem[:, :, 3]
+    alpha = rem[:, :, 3].copy()
+    del rem
+    gc.collect()
     if _white_backdrop(rgb):
-        f = max(1, min(3, 2400 // max(w, h)))
+        f = max(1, min(2, 1600 // max(w, h)))
         ga = _grabcut_alpha(rgb, f)
         ra = cv2.resize(alpha, (w * f, h * f), interpolation=cv2.INTER_CUBIC)
         sil = (ra > 8).astype(np.uint8) * 255
@@ -134,8 +168,14 @@ def cutout(body: CutIn):
         raise
     except (binascii.Error, UnidentifiedImageError, OSError, ValueError):
         raise HTTPException(400, "invalid image")
+    img.thumbnail((MAX_SIDE, MAX_SIDE))      # shrink before anything heavy is allocated
+    free = free_mb()
+    if free is not None and free < MIN_FREE_MB:
+        raise HTTPException(503, "The server is busy right now. Try again in a minute.")
     try:
-        out = remove_background(img)
+        with _run:
+            out = remove_background(img)
+        gc.collect()
     except Exception as e:
         raise HTTPException(502, f"background removal failed: {e.__class__.__name__}: {str(e)[:150]}")
     buf = io.BytesIO()
