@@ -147,6 +147,8 @@ const ES = {
   'Suggestions': 'Sugerencias',
   'Edit anything you like before creating. Tap a suggestion to use it.': 'Edita lo que quieras antes de crear. Toca una sugerencia para usarla.',
   'Each campaign needs a name and a daily budget above 0.': 'Cada campaña necesita un nombre y un presupuesto diario mayor a 0.',
+  'My brand colors': 'Colores de mi marca',
+  'empty = we write it': 'vacío = lo escribimos nosotros',
   'Your plan': 'Tu plan',
   'per day': 'por día',
   'Who sees it': 'Quién lo ve',

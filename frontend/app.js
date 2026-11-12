@@ -1,5 +1,5 @@
-import { auth } from './auth.js?v=brand-13';
-import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-13';
+import { auth } from './auth.js?v=brand-14';
+import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-14';
 
 const authPollers = new Set();
 
@@ -65,6 +65,21 @@ function applyBrand(form) {
   const note = document.createElement('p'); note.className = 'muted'; note.style.gridColumn = '1/-1';
   note.innerHTML = `${t('Using your brand')}: <b>${esc(b.name)}</b> · <a href="#brand">${t('Edit')}</a>`;
   form.prepend(note);
+}
+
+/** Manual creative form: every field stays editable. The brand only pre-fills them (and offers its products). */
+function prefillBrand(form) {
+  const b = brandCache; if (!form || !b || !b.completed) return;
+  const set = (n, v) => { const f = form.querySelector(`[name=${n}]`); if (f && v && !f.value) f.value = v; };
+  const addOpt = (n, value, label) => { const f = form.querySelector(`select[name=${n}]`); if (f && value && ![...f.options].some(o => o.value === value || o.text === value)) f.insertAdjacentHTML('afterbegin', `<option value="${esc(value)}">${esc(label || value)}</option>`); if (f && value) f.value = value; };
+  const dl = document.createElement('datalist'); dl.id = 'brand-products'; dl.innerHTML = b.products.map(x => `<option value="${esc(x.name)}">`).join('');
+  form.append(dl); const p = form.querySelector('[name=product]'); if (p) p.setAttribute('list', 'brand-products');
+  const fillProduct = () => { const x = b.products.find(q => q.name === p.value); if (!x) return; const d = form.querySelector('[name=description]'), pr = form.querySelector('[name=price]'); if (d) d.value = x.description || ''; if (pr) pr.value = x.price || ''; };
+  if (p) { if (!p.value && b.products[0]) p.value = b.products[0].name; p.addEventListener('change', fillProduct); fillProduct(); }
+  set('audience', (b.ideal_customer || '').slice(0, 120));
+  if (b.tone) addOpt('tone', b.tone.slice(0, 60));
+  addOpt('language', b.language || 'es');
+  if (b.palette && b.palette.length) addOpt('theme', 'brand:' + b.palette.join(','), t('My brand colors'));
 }
 
 async function api(path, opts = {}) {
@@ -142,6 +157,9 @@ async function creativesPanel(el, refresh) {
         <label>Language<select name="language">${Object.entries(opt.languages).map(([k, v]) => `<option value="${k}">${v}`).join('')}</select></label>
         <label>Tone<select name="tone"><option>friendly<option>bold<option>professional<option>playful<option>urgent</select></label>
         <label>Theme<select name="theme">${opt.themes.map(t => `<option>${t}`).join('')}</select></label>
+        <label>${t('Ad')} <span class="muted">(${t('empty = we write it')})</span><input name="headline" maxlength="80"></label>
+        <label>${t('Ad text')} <span class="muted">(${t('empty = we write it')})</span><input name="subheadline" maxlength="300"></label>
+        <label>${t('Button')} <span class="muted">(${t('empty = we write it')})</span><input name="cta" maxlength="30"></label>
         <label>${t('Button link: web page or WhatsApp number')}<input name="link" maxlength="300" placeholder="${t('Empty = your brand website or WhatsApp')}"></label>
         <label>Price badge (optional)<input name="price" maxlength="20" placeholder="$119.900 COP"></label>
         <label>Rating line (optional, must be true)<input name="social_proof" maxlength="50" placeholder="4.8/5 from 1,200 reviews"></label>
@@ -154,7 +172,7 @@ async function creativesPanel(el, refresh) {
         <button class="pri">Generate creatives</button></form>
         <p class="muted" style="margin:10px 0 0">Reviews, ratings and customer counts are never invented — they only appear if you enter them. 9:16 formats keep text inside platform safe zones.</p>
         <div id="cerr" class="toast"></div></details>`;
-    cutoutButton($('#cf', el)); applyBrand($('#cf', el));
+    cutoutButton($('#cf', el)); prefillBrand($('#cf', el));
     const file = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
     $('#cf', el).onsubmit = async e => {
       e.preventDefault(); const fd = new FormData(e.target), btn = $('button.pri', e.target); $('#cerr', el).textContent = '';
@@ -162,7 +180,7 @@ async function creativesPanel(el, refresh) {
       const testimonials = (fd.get('tests') || '').split('\n').map(l => l.trim()).filter(l => l.includes(':'))
         .map(l => ({ name: l.slice(0, l.indexOf(':')).trim(), text: l.slice(l.indexOf(':') + 1).trim() }));
       const body = { platforms, testimonials };
-      for (const k of ['product', 'description', 'audience', 'language', 'tone', 'theme', 'price', 'social_proof', 'link']) body[k] = fd.get(k) || '';
+      for (const k of ['product', 'description', 'audience', 'language', 'tone', 'theme', 'price', 'social_proof', 'link', 'headline', 'subheadline', 'cta']) body[k] = fd.get(k) || '';
       const f = fd.get('img'); if (f && f.size) { if (f.size > 8e6) return $('#cerr', el).textContent = t('Image over 8MB'); body.product_image = await file(f); }
       body.scene = fd.get('scene') === 'on'; body.scene_hint = fd.get('scene_hint') || '';
       btn.disabled = true; btn.textContent = t('Generating…');
