@@ -248,11 +248,11 @@ async function goalPlanner(box, onCreated) {
       const chips = (i, f, list) => list && list.length ? `<div class="chips sug"><span class="muted">${t('Suggestions')}:</span>${list.map(x => `<button type="button" class="chip" data-sug="${i}:${f}" data-v="${esc(x)}">${esc(x)}</button>`).join('')}</div>` : '';
       plan.innerHTML = `<h3>${t('Your plan')}</h3><p>${esc(t(r.summary))}</p><p class="muted">${t('Edit anything you like before creating. Tap a suggestion to use it.')}</p>
         <div class="plan">${r.campaigns.map((c, i) => `<div class="plan-item" data-i="${i}">
-          <div class="muted">${esc(t(OBJ[c.objective] || c.objective))} · <small>${esc(t(c.why))}</small></div>
-          ${FIELDS.map(([f, label, kind, max]) => `<label>${t(label)}${f === 'headline' || f === 'body' ? ` <span class="muted count" data-count="${i}:${f}"></span>` : ''}
+          <div class="plan-head"><span class="plan-num">${i + 1}</span><div><b>${esc(t(OBJ[c.objective] || c.objective))}</b><small class="muted">${esc(t(c.why))}</small></div></div>
+          ${FIELDS.map(([f, label, kind, max]) => `<label class="pf">${t(label)}${f === 'headline' || f === 'body' ? ` <span class="muted count" data-count="${i}:${f}"></span>` : ''}
             ${kind === 'textarea' ? `<textarea data-f="${f}" rows="${f === 'body' ? 2 : 2}" maxlength="${max}">${esc(c[f])}</textarea>` : `<input data-f="${f}" maxlength="${max}" value="${esc(c[f])}" ${f === 'landing_url' ? `placeholder="${t('Empty = your brand website or WhatsApp')}"` : ''}>`}</label>
             ${chips(i, f, (c.suggestions || {})[f])}`).join('')}
-          <label>${t('Daily budget')} (${currency})<input data-f="daily_budget" type="number" min="1" step="any" value="${c.daily_budget}"></label></div>`).join('')}</div>
+          <label class="pf">${t('Daily budget')} (${currency})<input data-f="daily_budget" type="number" min="1" step="any" value="${c.daily_budget}"></label></div>`).join('')}</div>
         <p class="muted" id="plantotal"></p>
         <div class="plan-actions"><button class="pri" id="mkplan">${t('Create these campaigns')}</button><span class="muted msgline" id="plannote"></span></div>`;
       const item = i => plan.querySelector(`.plan-item[data-i="${i}"]`), fld = (i, f) => item(i).querySelector(`[data-f="${f}"]`);
@@ -399,7 +399,7 @@ const views = {
         <label>Platform<select name="platform"><option value="meta">Meta<option value="tiktok">TikTok<option value="google">Google</select></label>
         <label>Name<input name="name" required></label>
         <label>Objective<select name="objective"><option>sales<option>traffic<option>leads<option>awareness<option>whatsapp</select></label>
-        <label>${t('Daily budget')} (${currency})<input name="daily_budget" type="number" min="1" step="any" value="${currency === 'COP' ? 50000 : 20}"></label>
+        <label class="pf">${t('Daily budget')} (${currency})<input name="daily_budget" type="number" min="1" step="any" value="${currency === 'COP' ? 50000 : 20}"></label>
         <label>Headline<input name="headline"></label>
         <label>Landing URL<input name="landing_url" type="url"></label>
         <button class="pri">Create campaign</button></form><div id="err" class="toast"></div></details>
