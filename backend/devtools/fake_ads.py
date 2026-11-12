@@ -107,6 +107,16 @@ def build_app() -> FastAPI:
 
     @app.api_route("/meta/{version}/{path:path}", methods=["GET", "POST"])
     async def meta(version: str, path: str, request: Request):
+        m = re.fullmatch(r"(\d+)/messages", path)           # WhatsApp Cloud API send (JSON body, bearer token)
+        if m and request.method == "POST":
+            auth = request.headers.get("authorization", "").removeprefix("Bearer ")
+            if (bad := meta_auth({"access_token": auth})):
+                return bad
+            body = json.loads((await request.body()) or b"{}")
+            if body.get("messaging_product") != "whatsapp" or not body.get("to"):
+                return meta_err("(#100) Param to must be specified.", 100)
+            state.setdefault("wa_sent", []).append(body)
+            return {"messaging_product": "whatsapp", "messages": [{"id": f"wamid.FAKE{len(state['wa_sent'])}"}]}
         p = dict(request.query_params)
         if request.method == "POST":
             p.update(parse_qsl((await request.body()).decode(), keep_blank_values=True))   # Graph takes form-encoded bodies

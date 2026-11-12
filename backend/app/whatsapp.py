@@ -10,13 +10,13 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from . import creds, sales
+from .platforms import meta as meta_api
 from .auth import current_user
 from .db import session_scope
 from .models import Campaign, Lead, Message, Metric, User
 
 router = APIRouter(prefix="/api", dependencies=[Depends(current_user)])
 hook = APIRouter(prefix="/api")      # public: called by Meta, authenticated by per-user key + signature
-GRAPH = "https://graph.facebook.com/v21.0"
 WINDOW = timedelta(hours=24)
 FOLLOWUP_AFTER = timedelta(hours=4)
 MAX_FOLLOWUPS = 2
@@ -37,7 +37,7 @@ def _parse(ts: Optional[str]) -> Optional[datetime]:
 
 
 def _post(cfg: dict, payload: dict) -> str:
-    r = httpx.post(f"{GRAPH}/{cfg['phone_id']}/messages", timeout=30,
+    r = httpx.post(f"{meta_api.base_url()}/{cfg['phone_id']}/messages", timeout=30,   # same Graph version as the Meta connector
                    headers={"Authorization": f"Bearer {cfg['token']}"},
                    json={"messaging_product": "whatsapp", **payload})
     r.raise_for_status()

@@ -75,6 +75,17 @@ class ConnectorTests(FakeAdsCase):
         self.assertIn("Session has expired", str(ctx.exception))
         self.assertNotIn("secret-token", str(ctx.exception))
 
+    def test_whatsapp_send_uses_the_connector_graph_version(self):
+        from app import whatsapp
+        wid = whatsapp._post({"phone_id": "109876", "token": "tok"}, {"to": "573001112233", "type": "text", "text": {"body": "hola"}})
+        self.assertTrue(wid.startswith("wamid."))
+        sent = [x["path"] for x in httpx.get(f"{self.base}/__log").json() if x["method"] == "POST"]
+        self.assertEqual(sent, ["/meta/v26.0/109876/messages"])
+        with patch.dict(os.environ, {"META_GRAPH_URL": ""}):
+            self.assertTrue(whatsapp.meta_api.base_url().endswith("/v26.0"))
+        with self.assertRaises(httpx.HTTPStatusError):
+            whatsapp._post({"phone_id": "109876", "token": "EXPIRED-token"}, {"to": "573001112233", "type": "text", "text": {"body": "x"}})
+
     def test_tiktok_and_google_report_no_results_connector_yet(self):
         from app.platforms import make
         with self.assertRaises(NotImplementedError):
