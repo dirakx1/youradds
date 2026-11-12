@@ -41,6 +41,9 @@ class GenIn(BaseModel):
     testimonials: list[Testimonial] = Field(default_factory=list, max_length=3)  # real ones only
     scene: bool = False                                # AI background scenes via Higgsfield
     scene_hint: str = Field("", max_length=200)        # optional art direction, e.g. "cozy bedroom at night"
+    headline: str = Field("", max_length=80)           # the owner's own ad text (e.g. edited in the plan) beats generated copy
+    subheadline: str = Field("", max_length=300)
+    cta: str = Field("", max_length=30)
     link: str = Field("", max_length=300)              # where the button goes: a web page or a WhatsApp number
     product_image: Optional[str] = None                # base64 (PNG with transparent background works best)
 
@@ -148,6 +151,12 @@ def generate(body: GenIn, user: dict = Depends(current_user)):
     for platform in dict.fromkeys(body.platforms):
         copy = ai.creative_copy(platform, body.product, body.description, body.audience, body.tone,
                                 LANGS[body.language], body.language, brand.prompt_block(b))
+        copy = {**copy, "product_name": body.product, "product_desc": body.description[:160]}
+        for key, val in (("headline", body.headline), ("subheadline", body.subheadline), ("cta", body.cta)):
+            if val.strip():
+                copy[key] = val.strip()
+        if body.headline.strip():
+            copy["accent"] = ""
         if not link:
             copy = {**copy, "cta": ""}          # a button that goes nowhere is not drawn
         for fmt, size in FORMATS[platform].items():

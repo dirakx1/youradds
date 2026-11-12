@@ -1,5 +1,5 @@
-import { auth } from './auth.js?v=brand-12';
-import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-12';
+import { auth } from './auth.js?v=brand-13';
+import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-13';
 
 const authPollers = new Set();
 
@@ -257,12 +257,13 @@ async function goalPlanner(box, onCreated) {
         const bad = edited.find(c => !c.name || !(c.daily_budget > 0));
         if (bad) { pn.className = 'toast msgline'; pn.textContent = t('Each campaign needs a name and a daily budget above 0.'); return; }
         pn.className = 'muted msgline'; ev.target.disabled = true; let sync = '';
-        try { for (const body of edited) { const x = await api('/campaigns', { method: 'POST', body }); if (x.sync_error) sync = x.sync_error; } }
+        const ids = [];
+        try { for (const body of edited) { const x = await api('/campaigns', { method: 'POST', body }); ids.push(x.id); if (x.sync_error) sync = x.sync_error; } }
         catch (x) { pn.className = 'toast msgline'; pn.textContent = x.message; ev.target.disabled = false; return; }
         if (sync) alert(t('Saved locally; platform sync failed: {e}', { e: sync }));
         pn.textContent = t('Campaigns created. Making your creatives…');
         v.landing_url = edited.find(c => c.landing_url)?.landing_url || v.landing_url;
-        await onCreated(r, v);
+        await onCreated({ ...r, campaigns: edited.map((c, i) => ({ ...c, id: ids[i] })) }, v);
       };
     };
 }
@@ -461,9 +462,14 @@ const views = {
     await goalPlanner($('#sp-goal', el), async (plan, v) => {
       const pn = $('#plannote', el);
       try {
-        const r = await api('/creatives/generate', { method: 'POST', body: { platforms: [v.platform], product: v.product, link: v.landing_url || '' } });
-        pn.textContent = t('Done! Campaigns and creatives are ready. Attach a creative to each campaign below.');
-        if (r.warnings && r.warnings.length) alert(r.warnings.join('\n'));
+        const warns = [];
+        for (const c of plan.campaigns) {   // one set of creatives per campaign, carrying exactly what the owner edited
+          const r = await api('/creatives/generate', { method: 'POST', body: { platforms: [v.platform], product: v.product, headline: c.headline, subheadline: c.body, cta: c.cta, link: c.landing_url || '' } });
+          if (r.warnings) warns.push(...r.warnings);
+          if (c.id) for (const cr of r.creatives || []) await api(`/creatives/${cr.id}/attach`, { method: 'POST', body: { campaign_id: c.id } });
+        }
+        pn.textContent = t('Done! Campaigns and creatives are ready, each creative is attached to its campaign.');
+        if (warns.length) alert(warns.join('\n'));
       } catch (x) { pn.className = 'toast msgline'; pn.textContent = t('Campaigns created, but creatives failed: {e}', { e: x.message }); }
       await refresh();
       pn.insertAdjacentHTML('beforebegin', `<button type="button" id="mkvid">${t('Also make a video')}</button>`);

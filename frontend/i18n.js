@@ -163,7 +163,7 @@ const ES = {
   'Create a creative manually (advanced)': 'Crear una creatividad manualmente (avanzado)',
   'Write ad copy (advanced)': 'Escribir textos de anuncios (avanzado)',
   'Campaigns created. Making your creatives…': 'Campañas creadas. Preparando tus creatividades…',
-  'Done! Campaigns and creatives are ready. Attach a creative to each campaign below.': '¡Listo! Las campañas y las creatividades están listas. Adjunta una creatividad a cada campaña aquí abajo.',
+  'Done! Campaigns and creatives are ready, each creative is attached to its campaign.': 'Listo. Las campañas y los creativos están listos, y cada creativo quedó unido a su campaña.',
   'Campaigns created, but creatives failed: {e}': 'Campañas creadas, pero fallaron las creatividades: {e}',
   'Your videos': 'Tus videos',
   'Make a video (AI background + your product, text and CTA)': 'Crear un video (fondo con IA + tu producto, texto y llamado a la acción)',

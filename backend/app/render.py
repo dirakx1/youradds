@@ -204,6 +204,31 @@ def render(size, copy, product, theme="purple", price="", social_proof="", ratin
         d.text((x + 5 * fs * 1.15 + fs * 0.4, y + fs * 0.05), social_proof, font=fp, fill=tx)
         return fs * 1.2
 
+    pname = (copy.get("product_name") or "").strip()
+    pdesc = (copy.get("product_desc") or "").strip()
+
+    def info_layout(maxw, maxh, big=1.0):
+        """Product name (accent colour) + description, sized to fit maxw x maxh. Returns (name, desc, height)."""
+        if not (pname or pdesc):
+            return None
+        nf = nl = df = dl = None
+        nh = dh = 0
+        if pname:
+            nf, nl = fit_text(pname, maxw, maxh * (0.42 if pdesc else 1), 58 * s * big, True, 2)
+            nh = len(nl) * nf.size * 1.12
+        if pdesc:
+            df, dl = fit_text(pdesc, maxw, max(maxh - nh - 8 * s, 10), 34 * s * big, False, 3, 1.2)
+            dh = len(dl) * df.size * 1.2 + 8 * s
+        return (nf, nl), (df, dl), nh + dh
+
+    def info_draw(lay, x0, x1, y, align):
+        (nf, nl), (df, dl), _ = lay
+        if nl:
+            y = draw_lines(d, nl, nf, x0, x1, y, accent, align=align)
+        if dl:
+            y = draw_lines(d, dl, df, x0, x1, y + 8 * s, tx, align=align, lh=1.2)
+        return y
+
     rfs = max(32 * s, 12)
 
     if land:
@@ -214,6 +239,9 @@ def render(size, copy, product, theme="purple", price="", social_proof="", ratin
         if copy.get("subheadline"):
             f2, l2 = fit_text(copy["subheadline"], colw, h * 0.2, 40 * s, False, 3)
             y = draw_lines(d, l2, f2, side, side + colw, y + 10 * s, tx, align="left", lh=1.2)
+        lay = info_layout(colw, max(h - bot_m - 110 * s - (rfs * 1.8 if social_proof else 0) - y - 30 * s, 0))
+        if lay and lay[2] > 0:
+            y = info_draw(lay, side, side + colw, y + 18 * s, "left")
         yb = y + 12 * s
         for b in bullets:
             if yb + 40 * s > h - bot_m - 110 * s - (rfs * 1.8 if social_proof else 0):
@@ -273,10 +301,27 @@ def render(size, copy, product, theme="purple", price="", social_proof="", ratin
                 d.text((x, yb), p, font=fb, fill=tx)
                 x += _tw(fb, p) + 36 * s
             yb -= 16 * s
+        lay = None
+        if product is not None:
+            lay = info_layout(w - 2 * side, max((yb - header_bottom) * 0.38, 0))
+            if lay and lay[2] > 0:
+                yb -= lay[2] + 14 * s
+                info_draw(lay, side, w - side, yb, "center")
+                yb -= 10 * s
         box = (side, int(header_bottom), w - side, int(yb))
         placed = _paste_product(img, product, box, accent, scene is None and not overlay) if product else None
         badge_anchor = (box[2], box[3])
     d = ImageDraw.Draw(img)
+    badge_cy = None
+    if not land and product is None:
+        lay = info_layout(w - 2 * side, (box[3] - box[1]) * 0.5, 1.25)
+        if lay and lay[2] > 0:
+            bh_ = max(44 * s, 13) * 1.65
+            group = lay[2] + ((30 * s + bh_) if price else 0)       # name + description + price, centred together
+            ytop = max(box[1], (box[1] + box[3]) / 2 - group / 2)
+            info_draw(lay, side, w - side, ytop, "center")
+            if price:
+                badge_cy = ytop + lay[2] + 30 * s + bh_ / 2
     if price:
         fpz = font(max(44 * s, 13), True)
         bw, bh = _tw(fpz, price) + fpz.size * 1.0, fpz.size * 1.65
@@ -286,7 +331,7 @@ def render(size, copy, product, theme="purple", price="", social_proof="", ratin
             by1 = py + ph_
         else:   # no product photo: put the badge in the middle of the product area
             bx1 = (box[0] + box[2]) / 2 + bw / 2
-            by1 = (box[1] + box[3]) / 2 + bh / 2
+            by1 = (badge_cy if badge_cy is not None else (box[1] + box[3]) / 2) + bh / 2
         d.rounded_rectangle([bx1 - bw, by1 - bh, bx1, by1], radius=bh / 2, fill=accent)
         d.text((bx1 - bw + fpz.size * 0.5, by1 - bh + (bh - fpz.size) / 2 - fpz.size * 0.06), price, font=fpz,
                fill=btn_tx)

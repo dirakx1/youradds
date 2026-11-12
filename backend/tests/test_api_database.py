@@ -121,6 +121,19 @@ class ApiDatabaseTests(DatabaseTestCase):
         self.client.post("/api/creatives/generate", json={"platforms": ["meta"]})
         self.assertTrue(any(not c["link"] and not c["cta"] for c in self.client.get("/api/creatives").json()))
 
+    def test_creative_uses_the_edited_plan_text(self):
+        self.client.put("/api/brand", json={"name": "Café", "ideal_customer": "Todos", "whatsapp": "3001234567",
+                                            "products": [{"name": "Café 500 g", "description": "Grano de origen", "price": ""}]})
+        r = self.client.post("/api/creatives/generate", json={"platforms": ["meta"], "headline": "Mi anuncio editado",
+                                                              "subheadline": "Mi texto", "cta": "Pídelo"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual({c["headline"] for c in r.json()["creatives"]}, {"Mi anuncio editado"})
+        rows = self.client.get("/api/creatives").json()
+        self.assertTrue(all(c["headline"] == "Mi anuncio editado" and c["subheadline"] == "Mi texto" and c["cta"] == "Pídelo" for c in rows))
+        cid = rows[0]["id"]
+        camp = self.client.post("/api/campaigns", json={"platform": "meta", "name": "x"}).json()["id"]
+        self.assertEqual(self.client.post(f"/api/creatives/{cid}/attach", json={"campaign_id": camp}).status_code, 200)
+
     def test_brand_website_and_whatsapp_feed_the_button_link(self):
         base = {"name": "Café", "ideal_customer": "Todos", "products": [{"name": "Café 500 g", "description": "", "price": ""}]}
         self.assertEqual(self.client.put("/api/brand", json={**base, "whatsapp": "abc"}).status_code, 422)
