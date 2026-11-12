@@ -93,6 +93,10 @@ class ApiDatabaseTests(DatabaseTestCase):
             self.assertEqual([c["objective"] for c in plan["campaigns"]], objectives)
             self.assertEqual(sum(c["daily_budget"] for c in plan["campaigns"]), 100000)
             self.assertTrue(all("Café 500 g" in c["name"] and c["audience"] for c in plan["campaigns"]))
+        for c in plan["campaigns"]:                                       # every field the owner can edit has alternatives
+            self.assertTrue(c["suggestions"]["headline"] and c["suggestions"]["cta"] and c["suggestions"]["audience"])
+            self.assertNotIn(c["headline"], c["suggestions"]["headline"])
+        self.assertEqual(plan["limits"], {"headline": 40, "body": 125})
         self.assertEqual(self.client.get("/api/campaigns").json(), [])                                  # preview only
         self.assertEqual(self.client.post("/api/campaigns/plan", json={"goal": "nope"}).status_code, 422)
         created = self.client.post("/api/campaigns", json={k: v for k, v in plan["campaigns"][0].items() if k != "why"})

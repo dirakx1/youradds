@@ -1,5 +1,5 @@
-import { auth } from './auth.js?v=brand-11';
-import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-11';
+import { auth } from './auth.js?v=brand-12';
+import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-12';
 
 const authPollers = new Set();
 
@@ -224,18 +224,44 @@ async function goalPlanner(box, onCreated) {
       const v = Object.fromEntries(new FormData(gf)); v.daily_budget = +v.daily_budget;
       let r; try { r = await api('/campaigns/plan', { method: 'POST', body: v }); } catch (x) { gnote.className = 'toast msgline'; gnote.textContent = x.message; return; }
       gnote.textContent = '';
-      plan.innerHTML = `<h3>${t('Your plan')}</h3><p>${esc(t(r.summary))}</p>
-        <div class="plan">${r.campaigns.map(c => `<div class="plan-item"><b>${esc(c.name)}</b>
-          <div class="muted">${esc(t(OBJ[c.objective] || c.objective))} · ${money(c.daily_budget)} ${t('per day')}</div>
-          <div>${t('Who sees it')}: ${esc(c.audience)}</div><div>${t('Ad')}: “${esc(c.headline)}”</div><small class="muted">${esc(t(c.why))}</small></div>`).join('')}</div>
-        <p class="muted">${t('Total')}: ${money(r.campaigns.reduce((a, c) => a + c.daily_budget, 0))} ${t('per day')}</p>
+      const L_ = r.limits || { headline: 40, body: 125 };
+      const FIELDS = [['name', 'Campaign name', 'input', 80], ['audience', 'Who sees it', 'textarea', 300], ['headline', 'Ad', 'input', L_.headline],
+        ['body', 'Ad text', 'textarea', L_.body], ['cta', 'Button', 'input', 30], ['landing_url', 'Button link: web page or WhatsApp number', 'input', 300]];
+      const chips = (i, f, list) => list && list.length ? `<div class="chips sug"><span class="muted">${t('Suggestions')}:</span>${list.map(x => `<button type="button" class="chip" data-sug="${i}:${f}" data-v="${esc(x)}">${esc(x)}</button>`).join('')}</div>` : '';
+      plan.innerHTML = `<h3>${t('Your plan')}</h3><p>${esc(t(r.summary))}</p><p class="muted">${t('Edit anything you like before creating. Tap a suggestion to use it.')}</p>
+        <div class="plan">${r.campaigns.map((c, i) => `<div class="plan-item" data-i="${i}">
+          <div class="muted">${esc(t(OBJ[c.objective] || c.objective))} · <small>${esc(t(c.why))}</small></div>
+          ${FIELDS.map(([f, label, kind, max]) => `<label>${t(label)}${f === 'headline' || f === 'body' ? ` <span class="muted count" data-count="${i}:${f}"></span>` : ''}
+            ${kind === 'textarea' ? `<textarea data-f="${f}" rows="${f === 'body' ? 2 : 2}" maxlength="${max}">${esc(c[f])}</textarea>` : `<input data-f="${f}" maxlength="${max}" value="${esc(c[f])}" ${f === 'landing_url' ? `placeholder="${t('Empty = your brand website or WhatsApp')}"` : ''}>`}</label>
+            ${chips(i, f, (c.suggestions || {})[f])}`).join('')}
+          <label>${t('Daily budget')} (${currency})<input data-f="daily_budget" type="number" min="1" step="any" value="${c.daily_budget}"></label></div>`).join('')}</div>
+        <p class="muted" id="plantotal"></p>
         <div class="plan-actions"><button class="pri" id="mkplan">${t('Create these campaigns')}</button><span class="muted msgline" id="plannote"></span></div>`;
+      const item = i => plan.querySelector(`.plan-item[data-i="${i}"]`), fld = (i, f) => item(i).querySelector(`[data-f="${f}"]`);
+      const refreshInfo = () => {
+        let tot = 0; r.campaigns.forEach((c, i) => {
+          tot += +fld(i, 'daily_budget').value || 0;
+          for (const f of ['headline', 'body']) { const n = plan.querySelector(`[data-count="${i}:${f}"]`); if (n) n.textContent = `${fld(i, f).value.length}/${L_[f]}`; }
+        });
+        $('#plantotal', box).textContent = `${t('Total')}: ${money(tot)} ${t('per day')}`;
+      };
+      plan.oninput = refreshInfo;
+      plan.onclick = e => { const b = e.target.closest('[data-sug]'); if (!b) return; const [i, f] = b.dataset.sug.split(':'); const x = fld(i, f); x.value = b.dataset.v; refreshInfo(); x.focus(); };
+      refreshInfo();
       $('#mkplan', box).onclick = async ev => {
-        ev.target.disabled = true; const pn = $('#plannote', box); let sync = '';
-        try { for (const c of r.campaigns) { const { why, ...body } = c; const x = await api('/campaigns', { method: 'POST', body }); if (x.sync_error) sync = x.sync_error; } }
+        const pn = $('#plannote', box), edited = r.campaigns.map((c, i) => {
+          const { why, suggestions, ...rest } = c;
+          for (const f of ['name', 'audience', 'headline', 'body', 'cta', 'landing_url']) rest[f] = fld(i, f).value.trim();
+          rest.daily_budget = +fld(i, 'daily_budget').value; return rest;
+        });
+        const bad = edited.find(c => !c.name || !(c.daily_budget > 0));
+        if (bad) { pn.className = 'toast msgline'; pn.textContent = t('Each campaign needs a name and a daily budget above 0.'); return; }
+        pn.className = 'muted msgline'; ev.target.disabled = true; let sync = '';
+        try { for (const body of edited) { const x = await api('/campaigns', { method: 'POST', body }); if (x.sync_error) sync = x.sync_error; } }
         catch (x) { pn.className = 'toast msgline'; pn.textContent = x.message; ev.target.disabled = false; return; }
         if (sync) alert(t('Saved locally; platform sync failed: {e}', { e: sync }));
         pn.textContent = t('Campaigns created. Making your creatives…');
+        v.landing_url = edited.find(c => c.landing_url)?.landing_url || v.landing_url;
         await onCreated(r, v);
       };
     };

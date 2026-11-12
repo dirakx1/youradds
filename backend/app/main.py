@@ -173,10 +173,10 @@ def plan_campaigns(body: GoalIn, user: dict = Depends(current_user)):
     if body.language not in creatives.LANGS:
         raise HTTPException(400, "unsupported language")
     body.landing_url = creatives.normalize_link(body.landing_url)     # a WhatsApp number becomes a wa.me link
-    variants = ai.generate_copy(body.platform, body.product, body.audience or "everyone", body.tone or "friendly", 2,
+    variants = ai.generate_copy(body.platform, body.product, body.audience or "everyone", body.tone or "friendly", 4,
                                 creatives.LANGS[body.language], body.language, brand.prompt_block(b))
     plan = goals.build_plan(body.goal, body.platform, body.product, body.daily_budget, b["ideal_customer"] if b else "",
-                            variants, body.landing_url, cop=config.DEFAULT_CURRENCY == "COP")
+                            variants, body.landing_url, cop=config.DEFAULT_CURRENCY == "COP", limits=ai.LIMITS[body.platform])
     return {**plan, "llm": ai.llm_available()}
 
 
