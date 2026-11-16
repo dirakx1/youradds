@@ -172,6 +172,10 @@ def save(service: str, body: ConnIn, user: dict = Depends(current_user)):
             cur[k] = v
         else:
             cur.pop(k, None)
+    if service == "meta":
+        for field in ("page_id", "instagram_account_id"):
+            if cur.get(field) and not cur[field].isdigit():
+                raise HTTPException(400, "The Page and Instagram IDs are numbers (not links). Use the 'Detect my Page and Instagram' button.")
     if service == "higgsfield" and cur.get("api_key") and ":" not in cur["api_key"]:
         raise HTTPException(400, "Higgsfield key must look like ID:SECRET")
     if service == "whatsapp" and cur.get("phone_id") and not cur.get("verify_token"):

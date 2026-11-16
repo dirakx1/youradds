@@ -15,7 +15,7 @@ from .config import PLATFORMS, validate_clerk_config
 from .db import check_database_revision, dispose_engine, engine, session_scope
 from .models import Campaign, Metric
 from .platforms import make as make_platform
-from . import whatsapp, creatives, videos, cutout, pages, goals, insights
+from . import whatsapp, creatives, videos, cutout, pages, goals, insights, publish
 
 
 @asynccontextmanager
@@ -47,6 +47,8 @@ app.include_router(whatsapp.router)
 app.include_router(creatives.router)
 app.include_router(videos.router)
 app.include_router(cutout.router)
+app.include_router(publish.router)
+app.include_router(publish.conn_router)
 
 
 pages.register(app)
@@ -204,7 +206,11 @@ def set_status(cid: int, status: Literal["active", "paused"], user: dict = Depen
         row = _own(session, cid, user["id"])
     err = None
     if row["external_id"]:
-        _, err = _sync(user["id"], row["platform"], lambda p: p.set_status(row["external_id"], status))
+        state = publish._state(row)
+        if status == "active" and state.get("ad_id"):       # a published ad delivers only if its ad set and ad are active too
+            _, err = _sync(user["id"], row["platform"], lambda p: publish.activate_objects(p, state, row["external_id"]))
+        else:
+            _, err = _sync(user["id"], row["platform"], lambda p: p.set_status(row["external_id"], status))
     if not err:
         with session_scope() as session:
             session.execute(update(Campaign).where(Campaign.id == cid, Campaign.user_id == user["id"]).values(status=status))

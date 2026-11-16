@@ -64,17 +64,22 @@ class Meta(AdPlatform):
     def configured(self):
         return bool(self.c.get("access_token") and self.c.get("ad_account_id"))
 
-    def _call(self, method, path, **data):
+    def _call(self, method, path, _files=None, **data):
         data["access_token"] = self.c["access_token"]
-        r = httpx.request(method, f"{base_url()}/{path}", data=data if method == "POST" else None,
-                          params=data if method == "GET" else None, timeout=30)
+        r = httpx.request(method, f"{base_url()}/{path}", data=data if method == "POST" else None, files=_files,
+                          params=data if method == "GET" else None, timeout=60 if _files else 30)
         if r.is_error:                       # Meta says why in the body; the raw httpx error says nothing useful
             try:
                 e = r.json()["error"]
                 msg = e.get("error_user_msg") or e.get("error_user_title") or e.get("message") or ""
             except (ValueError, KeyError, TypeError, AttributeError):
                 msg = ""
-            raise RuntimeError(f"Meta: {msg or 'HTTP ' + str(r.status_code)}"[:300])
+            code = ""
+            try:
+                code = f" [{r.json()['error'].get('error_subcode') or r.json()['error'].get('code')}]"
+            except (ValueError, KeyError, TypeError, AttributeError):
+                pass
+            raise RuntimeError(f"Meta: {msg or 'HTTP ' + str(r.status_code)}{code}"[:360])
         return r.json()
 
     def account_currency(self) -> str:
@@ -98,14 +103,80 @@ class Meta(AdPlatform):
     def set_status(self, external_id, status):
         self._call("POST", external_id, status="ACTIVE" if status == "active" else "PAUSED")
 
-    def set_budget(self, external_id, daily_budget):
-        """daily_budget is in the currency youradds shows; Meta gets it in the account's currency and minor unit.
-        (A budget lives on ad sets unless CBO is used; this is the campaign-level one.)"""
+    def to_minor(self, daily_budget: float) -> int:
+        """A budget in the currency youradds shows -> Meta's integer in the account's currency and smallest unit."""
         cur = self.account_currency()
         minor = round(fx.convert(daily_budget, DEFAULT_CURRENCY, cur) * minor_per_unit(cur))
         if minor < 1:
             raise RuntimeError(f"That budget is below Meta's minimum for a {cur} account")
-        self._call("POST", external_id, daily_budget=minor)
+        return minor
+
+    def set_budget(self, external_id, daily_budget):
+        """daily_budget is in the currency youradds shows; Meta gets it in the account's currency and minor unit.
+        (A budget lives on ad sets unless CBO is used; this is the campaign-level one.)"""
+        self._call("POST", external_id, daily_budget=self.to_minor(daily_budget))
+
+    def min_daily_budget(self) -> int | None:
+        """Meta's smallest daily budget for this account, in the account currency's minor unit (None if unknown)."""
+        cur = self.account_currency()
+        try:
+            rows = self._call("GET", f"{self.acct}/minimum_budgets").get("data", [])
+        except Exception:
+            return None
+        return next((int(r["min_daily_budget_imp"]) for r in rows if r.get("currency") == cur), None)
+
+    # ---- publishing: images, ad set, creative, ad (always created PAUSED) ----
+    def pages(self) -> list[dict]:
+        """Facebook Pages this token can use, each with its linked Instagram business account when there is one."""
+        res = self._call("GET", "me/accounts", fields="id,name,instagram_business_account{id,username}", limit=50)
+        return [{"id": x["id"], "name": x.get("name", ""),
+                 "instagram": ({"id": x["instagram_business_account"]["id"],
+                                "username": x["instagram_business_account"].get("username", "")}
+                               if x.get("instagram_business_account") else None)} for x in res.get("data", [])]
+
+    def upload_image(self, filename: str, data: bytes) -> str:
+        res = self._call("POST", f"{self.acct}/adimages", _files={"filename": (filename, data, "image/png")})
+        try:
+            return next(iter(res["images"].values()))["hash"]
+        except (KeyError, StopIteration, TypeError):
+            raise RuntimeError("Meta did not return an image hash")
+
+    def create_adset(self, campaign_id: str, spec: dict, validate: bool = False) -> str:
+        """spec: name, daily_budget (app currency), destination ('website'|'whatsapp'), targeting (dict),
+        page_id, whatsapp_number."""
+        body = dict(name=spec["name"], campaign_id=campaign_id, daily_budget=self.to_minor(spec["daily_budget"]),
+                    billing_event="IMPRESSIONS", bid_strategy="LOWEST_COST_WITHOUT_CAP", status="PAUSED",
+                    targeting=json.dumps(spec["targeting"]))
+        if spec["destination"] == "whatsapp":
+            body.update(optimization_goal="CONVERSATIONS", destination_type="WHATSAPP",
+                        promoted_object=json.dumps({"page_id": spec["page_id"],
+                                                    "whatsapp_phone_number": spec["whatsapp_number"]}))
+        else:
+            body.update(optimization_goal="LINK_CLICKS", destination_type="WEBSITE")
+        if validate:
+            body["execution_options"] = json.dumps(["validate_only"])
+        return self._call("POST", f"{self.acct}/adsets", **body).get("id", "")
+
+    def create_creative(self, spec: dict, validate: bool = False) -> str:
+        """spec: name, page_id, instagram_id (optional), images {label: hash}, rules [{label, spec}], body, title,
+        link, cta (Meta enum), destination."""
+        feed = {"images": [{"hash": h, "adlabels": [{"name": label}]} for label, h in spec["images"].items()],
+                "bodies": [{"text": spec["body"]}], "titles": [{"text": spec["title"]}],
+                "link_urls": [{"website_url": spec["link"]}], "call_to_action_types": [spec["cta"]],
+                "ad_formats": ["SINGLE_IMAGE"], "optimization_type": "PLACEMENT",
+                "asset_customization_rules": [{"customization_spec": r["spec"], "image_label": {"name": r["label"]}}
+                                              for r in spec["rules"]]}
+        story = {"page_id": spec["page_id"]}
+        if spec.get("instagram_id"):
+            story["instagram_user_id"] = spec["instagram_id"]
+        body = dict(name=spec["name"], object_story_spec=json.dumps(story), asset_feed_spec=json.dumps(feed))
+        if validate:
+            body["execution_options"] = json.dumps(["validate_only"])
+        return self._call("POST", f"{self.acct}/adcreatives", **body).get("id", "")
+
+    def create_ad(self, name: str, adset_id: str, creative_id: str) -> str:
+        return self._call("POST", f"{self.acct}/ads", name=name, adset_id=adset_id, status="PAUSED",
+                          creative=json.dumps({"creative_id": creative_id}))["id"]
 
     def list_campaigns(self):
         res = self._call("GET", f"{self.acct}/campaigns",

@@ -1,5 +1,5 @@
-import { auth } from './auth.js?v=brand-14';
-import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-14';
+import { auth } from './auth.js?v=brand-15';
+import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-15';
 
 const authPollers = new Set();
 
@@ -138,6 +138,71 @@ async function cutoutButton(form) {
     } catch (x) { note.textContent = x.message; }
     btn.disabled = false;
   };
+}
+
+
+// ---- Publish a campaign to Meta (ad set + ad, created paused) ----
+const PLACEMENT_LABELS = { facebook_feed: 'Facebook Feed', facebook_story: 'Facebook Stories', facebook_reels: 'Facebook Reels',
+  instagram_feed: 'Instagram Feed', instagram_story: 'Instagram Stories', instagram_reels: 'Instagram Reels' };
+const COUNTRIES = { CO: 'Colombia', MX: 'México', AR: 'Argentina', CL: 'Chile', PE: 'Perú', EC: 'Ecuador', ES: 'España', US: 'United States' };
+const pubState = c => { try { return JSON.parse(c.publish || '{}'); } catch { return {}; } };
+
+function publishDialog(c, done) {
+  const dlg = document.createElement('dialog'); dlg.className = 'pubdlg';
+  const published = !!pubState(c).ad_id;
+  dlg.innerHTML = `<form method="dialog" class="pubform">
+    <h3 style="margin-top:0">${t('Publish to Meta')}: ${esc(c.name)}</h3>
+    <p class="muted">${t('Everything is created paused in your ad account. Nothing is spent until you press Activate.')}</p>
+    <div class="pub-grid">
+      <fieldset class="pub-box"><legend>${t('Where do people go?')}</legend>
+        <label class="opt"><input type="radio" name="destination" value="website" checked> ${t('My website or link')}</label>
+        <label class="opt"><input type="radio" name="destination" value="whatsapp"> ${t('A WhatsApp chat')}</label></fieldset>
+      <fieldset class="pub-box"><legend>${t('Where will it show?')}</legend>
+        ${Object.entries(PLACEMENT_LABELS).map(([k, v]) => `<label class="opt"><input type="checkbox" name="pl" value="${k}" ${['facebook_feed', 'instagram_feed', 'facebook_story', 'instagram_story'].includes(k) ? 'checked' : ''}> ${v}</label>`).join('')}</fieldset>
+      <fieldset class="pub-box"><legend>${t('Who sees it?')}</legend>
+        <label class="pf">${t('Country')}<select name="country">${Object.entries(COUNTRIES).map(([k, v]) => `<option value="${k}">${v}`).join('')}</select></label>
+        <div class="pub-ages"><label class="pf">${t('Age from')}<input name="age_min" type="number" min="13" max="65" value="18"></label>
+        <label class="pf">${t('to')}<input name="age_max" type="number" min="13" max="65" value="65"></label></div>
+        <p class="muted" style="margin:6px 0 0">${t('Meta finds the best people inside this range.')}</p></fieldset>
+    </div>
+    <div class="pub-checks" aria-live="polite"><span class="muted">${t('Checking…')}</span></div>
+    <p class="pub-money muted"></p>
+    <div class="pub-actions">
+      <button type="button" data-act="validate">${t('Check with Meta')}</button>
+      <button type="button" class="pri" data-act="publish">${published ? t('Published') : t('Publish (paused)')}</button>
+      <button type="button" data-act="activate" ${published ? '' : 'hidden'}>${t('Activate')}</button>
+      <button value="cancel" formnovalidate>${t('Close')}</button></div>
+    <p class="msgline toast" hidden></p></form>`;
+  document.body.appendChild(dlg); dlg.showModal();
+  dlg.addEventListener('close', () => { dlg.remove(); });
+  const f = $('form', dlg), msg = $('.msgline', dlg), checks = $('.pub-checks', dlg), money = $('.pub-money', dlg);
+  const opts = () => { const fd = new FormData(f); return { destination: fd.get('destination'), placements: fd.getAll('pl'),
+    countries: [fd.get('country')], age_min: +fd.get('age_min') || 18, age_max: +fd.get('age_max') || 65 }; };
+  const say = (text, bad) => { msg.hidden = !text; msg.textContent = text || ''; msg.className = 'msgline ' + (bad ? 'toast' : 'muted'); };
+  const ICON = { ok: '✓', warn: '!', block: '✕' };
+  let current = null;
+  const check = async () => {
+    try {
+      const r = current = await api(`/campaigns/${c.id}/publish/check`, { method: 'POST', body: opts() });
+      checks.innerHTML = r.checks.map(x => `<div class="chk ${x.level}"><b>${ICON[x.level]}</b> ${esc(t(x.message))}</div>`).join('');
+      const m = r.money;
+      money.textContent = m.account_amount ? t('Daily budget: {a} {ac} (about {b} {bc}). Meta minimum: {m} {bc}.', {
+        a: Number(m.app_amount).toLocaleString(locale), ac: m.app_currency, b: m.account_amount, bc: m.account_currency, m: m.minimum ?? '–' }) : '';
+      $('[data-act=publish]', dlg).disabled = !r.ok || published;
+    } catch (x) { checks.innerHTML = `<div class="chk block"><b>✕</b> ${esc(t(x.message))}</div>`; }
+  };
+  f.addEventListener('change', check); check();
+  const run = async (btn, label, fn) => { btn.disabled = true; const was = btn.textContent; btn.textContent = label; say('');
+    try { await fn(); } catch (x) { say(t(x.message), true); } btn.disabled = false; btn.textContent = was; };
+  $('[data-act=validate]', dlg).onclick = e => run(e.target, t('Checking…'), async () => {
+    await api(`/campaigns/${c.id}/publish`, { method: 'POST', body: { ...opts(), validate_only: true } }); say(t('Meta accepted the ad set and the creative. Nothing was created.')); });
+  $('[data-act=publish]', dlg).onclick = e => run(e.target, t('Publishing…'), async () => {
+    await api(`/campaigns/${c.id}/publish`, { method: 'POST', body: opts() });
+    say(t('Published to Meta, paused. Open Ads Manager to review it, then press Activate.')); $('[data-act=activate]', dlg).hidden = false; e.target.textContent = t('Published'); e.target.disabled = true; done(); });
+  $('[data-act=activate]', dlg).onclick = e => run(e.target, t('Activating…'), async () => {
+    const m = current?.money || {};
+    if (!confirm(t('Activate now? Meta will start spending up to {a} {ac} per day.', { a: Number(m.app_amount || 0).toLocaleString(locale), ac: m.app_currency || currency }))) return;
+    await api(`/campaigns/${c.id}/activate`, { method: 'POST' }); say(t('Active. It can take a few minutes to start delivering.')); done(); });
 }
 
 async function creativesPanel(el, refresh) {
@@ -404,9 +469,9 @@ const views = {
         <label>Landing URL<input name="landing_url" type="url"></label>
         <button class="pri">Create campaign</button></form><div id="err" class="toast"></div></details>
       <div class="card scroll"><table class="rtable"><thead><tr><th>Name<th>Platform<th>Status<th>Budget/day<th>Spend 7d<th>CTR<th>CPA<th>ROAS<th></tr></thead>
-      ${rows.map(c => `<tr><td data-label="${t('Name')}">${esc(c.name)}<td data-label="${t('Platform')}">${pill(c.platform)}<td data-label="${t('Status')}" class="st-${c.status}">${c.status}<td data-label="${t('Budget/day')}">${money(c.daily_budget)}
+      ${rows.map(c => `<tr><td data-label="${t('Name')}">${esc(c.name)}${pubState(c).ad_id ? ` <span class="pubtag">${t('On Meta')}</span>` : ''}<td data-label="${t('Platform')}">${pill(c.platform)}<td data-label="${t('Status')}" class="st-${c.status}">${c.status}<td data-label="${t('Budget/day')}">${money(c.daily_budget)}
         <td data-label="${t('Spend 7d')}">${money(c.spend)}<td data-label="CTR">${c.ctr}%<td data-label="CPA">${c.cpa ? money(c.cpa) : '–'}<td data-label="ROAS">${c.roas}x
-        <td data-label=""><button data-t="${c.id}" data-s="${c.status === 'active' ? 'paused' : 'active'}">${c.status === 'active' ? 'Pause' : 'Resume'}</button>
+        <td data-label="">${c.platform === 'meta' && c.external_id ? `<button data-pub="${c.id}" class="${pubState(c).ad_id ? '' : 'pri'}">${pubState(c).ad_id ? t('Meta ad') : t('Publish to Meta')}</button> ` : ''}<button data-t="${c.id}" data-s="${c.status === 'active' ? 'paused' : 'active'}">${c.status === 'active' ? 'Pause' : 'Resume'}</button>
         <button data-d="${c.id}">✕</button>`).join('')}</table></div>`;
     $('#f').onsubmit = async e => {
       e.preventDefault();
@@ -417,6 +482,7 @@ const views = {
     };
     el.onclick = async e => {
       const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.pub) return publishDialog(rows.find(r => String(r.id) === b.dataset.pub), () => views.campaigns(el));
       if (b.dataset.t) await api(`/campaigns/${b.dataset.t}/status?status=${b.dataset.s}`, { method: 'POST' });
       else if (b.dataset.d && confirm(t('Delete campaign?'))) await api('/campaigns/' + b.dataset.d, { method: 'DELETE' });
       else return;
@@ -595,7 +661,7 @@ const views = {
             placeholder="${f.secret && f.set ? esc(f.masked) + esc(t(' (saved)')) : esc(t(f.hint || ''))}"></label>`).join('')}</div>
         <button class="pri" type="submit">Save</button>
         ${['meta', 'tiktok', 'google'].includes(c.service) && c.connected ? `<button type="button" data-import="${c.service}">Test &amp; import campaigns</button>` : ''}
-        ${c.service === 'meta' && c.connected ? `<button type="button" data-sync="meta">${t('Sync results')}</button>` : ''}
+        ${c.service === 'meta' && c.connected ? `<button type="button" data-sync="meta">${t('Sync results')}</button> <button type="button" data-detect>${t('Detect my Page and Instagram')}</button>` : ''}
         ${c.connected && !c.shared ? '<button type="button" data-clear>Disconnect</button>' : ''}
         <button type="button" data-recheck>Re-check</button>
         <span class="muted msgline"></span><p class="toast statusdetail"></p></form>`).join('')}`;
@@ -641,6 +707,16 @@ const views = {
         } catch (x) { n.className = 'toast msgline'; n.textContent = x.message; }
       };
       if (syn) syn.onclick = () => syncResults(note);
+      const det = $('[data-detect]', f);
+      if (det) det.onclick = async () => {
+        note.className = 'muted msgline'; note.textContent = t('Contacting {svc}…', { svc });
+        try {
+          const r = await api('/connections/meta/detect', { method: 'POST' });
+          if (r.saved) { note.textContent = t('Saved: {p}{ig}', { p: r.pages[0].name, ig: r.pages[0].instagram ? ' + Instagram @' + r.pages[0].instagram.username : ' (' + t('no Instagram linked') + ')' }); setTimeout(() => views.connections(el), 1200); return; }
+          note.innerHTML = t('Choose your Page') + ': ' + r.pages.map(p => `<button type="button" data-page="${esc(p.id)}">${esc(p.name)}</button>`).join(' ');
+          note.querySelectorAll('[data-page]').forEach(b => b.onclick = async () => { await api('/connections/meta/use-page', { method: 'POST', body: { page_id: b.dataset.page } }); views.connections(el); });
+        } catch (x) { note.textContent = t(x.message); note.className = 'toast msgline'; }
+      };
       if (clr) clr.onclick = async () => { if (confirm(t('Remove the saved {svc} credentials?', { svc }))) { await api('/connections/' + svc, { method: 'DELETE' }); views.connections(el); } };
     });
     loadStatus(false);

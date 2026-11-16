@@ -63,6 +63,7 @@ class Campaign(Base):
     cta: Mapped[str | None] = mapped_column(Text)
     landing_url: Mapped[str | None] = mapped_column(Text)
     audience: Mapped[str | None] = mapped_column(Text)
+    publish: Mapped[str | None] = mapped_column(Text)        # JSON: options + the ad set / creative / ad ids made in Meta
     created_at: Mapped[str | None] = mapped_column(Text, server_default=UTC_NOW)
 
 
@@ -124,6 +125,7 @@ class Creative(Base):
     cta: Mapped[str | None] = mapped_column(Text)
     link: Mapped[str | None] = mapped_column(Text)
     language: Mapped[str | None] = mapped_column(Text)
+    image_hash: Mapped[str | None] = mapped_column(Text)    # Meta ad-image hash once uploaded
     campaign_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey(f"{SCHEMA}.campaigns.id", ondelete="SET NULL"))
     created_at: Mapped[str | None] = mapped_column(Text, server_default=UTC_NOW)
 

@@ -59,11 +59,23 @@ def build_app() -> FastAPI:
     def reset():
         for k in ("meta", "tiktok", "google", "budgets", "log"):
             state[k].clear()
+        for k in ("meta_objs", "dev_mode", "wa_unlinked", "no_ig"):
+            state.pop(k, None)
+        return {"ok": True}
+
+    @app.post("/__flags")
+    async def flags(request: Request):
+        """Switch fake behaviours on: dev_mode (creatives refused), wa_unlinked (WhatsApp ad sets refused), no_ig."""
+        state.update(await request.json())
         return {"ok": True}
 
     # ------------------------------------------------------------------ Meta Graph API
-    def meta_err(message, code, status=400, typ="OAuthException"):
-        return JSONResponse({"error": {"message": message, "type": typ, "code": code, "fbtrace_id": "FAKE"}}, status)
+    def meta_err(message, code, status=400, typ="OAuthException", subcode=None):
+        err = {"message": message, "type": typ, "code": code, "fbtrace_id": "FAKE"}
+        if subcode:
+            err["error_subcode"] = subcode
+            err["error_user_msg"] = message
+        return JSONResponse({"error": err}, status)
 
     def meta_auth(p):
         tok = p.get("access_token", "")
@@ -119,7 +131,13 @@ def build_app() -> FastAPI:
             return {"messaging_product": "whatsapp", "messages": [{"id": f"wamid.FAKE{len(state['wa_sent'])}"}]}
         p = dict(request.query_params)
         if request.method == "POST":
-            p.update(parse_qsl((await request.body()).decode(), keep_blank_values=True))   # Graph takes form-encoded bodies
+            raw_body = await request.body()
+            if request.headers.get("content-type", "").startswith("multipart/"):           # image upload: token is a form field
+                mt = re.search(rb'name="access_token"\r\n\r\n([^\r]+)', raw_body)
+                if mt:
+                    p["access_token"] = mt.group(1).decode()
+            else:
+                p.update(parse_qsl(raw_body.decode(), keep_blank_values=True))   # Graph takes form-encoded bodies
         if (bad := meta_auth(p)):
             return bad
         camps = state["meta"]
@@ -146,6 +164,72 @@ def build_app() -> FastAPI:
             cid = str(nid())
             camps[cid] = {"id": cid, "acct": acct, "name": p["name"], "status": p["status"], "objective": p["objective"]}
             return {"id": cid}
+        objs = state.setdefault("meta_objs", {})
+        if path == "me/accounts" and request.method == "GET":
+            return {"data": [{"id": "5551", "name": "Fake Page", "instagram_business_account": {"id": "7771", "username": "fake_ig"}}]
+                    if not state.get("no_ig") else [{"id": "5551", "name": "Fake Page"}]}
+        m = re.fullmatch(r"(act_\d+)/minimum_budgets", path)
+        if m:
+            return {"data": [{"currency": "USD", "min_daily_budget_imp": 100}, {"currency": "COP", "min_daily_budget_imp": 3316}]}
+        m = re.fullmatch(r"(act_\d+)/adimages", path)
+        if m and request.method == "POST":
+            raw = await request.body()
+            if not raw or b"filename" not in raw:
+                return meta_err("(#100) Param filename must be specified.", 100)
+            h = "hash" + str(len(raw))
+            return {"images": {"filename": {"hash": h, "url": "https://fake/" + h}}}
+        m = re.fullmatch(r"(act_\d+)/(adsets|adcreatives|ads)", path)
+        if m and request.method == "POST":
+            kind = m.group(2)
+            validate_only = "validate_only" in p.get("execution_options", "")
+            try:
+                if kind == "adsets":
+                    for req in ("name", "campaign_id", "daily_budget", "billing_event", "optimization_goal", "bid_strategy", "targeting", "status"):
+                        if req not in p:
+                            return meta_err(f"(#100) Param {req} must be specified.", 100)
+                    if p["campaign_id"] not in camps:
+                        return meta_err("Invalid parameter: campaign_id", 100)
+                    if not re.fullmatch(r"\d+", p["daily_budget"]):
+                        return meta_err("Invalid parameter: daily_budget must be an integer", 100)
+                    tg = json.loads(p["targeting"])
+                    if "geo_locations" not in tg:
+                        return meta_err("Invalid parameter: targeting.geo_locations is required", 100)
+                    if p.get("destination_type") == "WHATSAPP":
+                        po = json.loads(p.get("promoted_object", "{}"))
+                        if state.get("wa_unlinked") or not po.get("page_id"):
+                            return meta_err("Tu página no está vinculada a una cuenta de WhatsApp.", 100, subcode=2446886)
+                elif kind == "adcreatives":
+                    if state.get("dev_mode"):
+                        return meta_err("La publicación con contenido publicitario se creó con una app en modo de desarrollo.", 100, subcode=1885183)
+                    story, feed = json.loads(p["object_story_spec"]), json.loads(p["asset_feed_spec"])
+                    if not story.get("page_id"):
+                        return meta_err("Invalid parameter: object_story_spec.page_id", 100)
+                    labels = {l["name"] for i in feed["images"] for l in i["adlabels"]}
+                    for rule in feed.get("asset_customization_rules", []):
+                        if rule["image_label"]["name"] not in labels:
+                            return meta_err("Invalid parameter: image_label does not match any image", 100)
+                    if not feed.get("bodies") or not feed.get("titles") or not feed.get("link_urls") or not feed.get("call_to_action_types"):
+                        return meta_err("Invalid parameter: asset_feed_spec is incomplete", 100)
+                else:
+                    if p.get("adset_id") not in objs or p.get("creative") is None:
+                        return meta_err("Invalid parameter: adset_id / creative", 100)
+                    if objs[p["adset_id"]].get("kind") != "adsets" or json.loads(p["creative"]).get("creative_id") not in objs:
+                        return meta_err("Invalid parameter: unknown ad set or creative", 100)
+                    if p.get("status") != "PAUSED":
+                        return meta_err("Invalid parameter: status must be PAUSED here", 100)
+            except (ValueError, KeyError, TypeError):
+                return meta_err("Invalid parameter: malformed JSON", 100)
+            if validate_only:
+                return {"success": True}
+            oid = str(nid())
+            objs[oid] = {"kind": kind, "status": p.get("status", "PAUSED"), "params": p}
+            return {"id": oid}
+        if path in objs:
+            if request.method == "GET":
+                return {"id": path, "status": objs[path]["status"]}
+            if "status" in p:
+                objs[path]["status"] = p["status"]
+            return {"success": True}
         if path in camps:
             c = camps[path]
             if request.method == "GET":

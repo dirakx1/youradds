@@ -2,47 +2,10 @@ from unittest.mock import patch, AsyncMock
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
-from tests.support import DatabaseTestCase
+from tests.support import ApiTestCase
 
 
-class ApiDatabaseTests(DatabaseTestCase):
-    def setUp(self):
-        super().setUp()
-        from app.main import app
-        from app.models import User
-        from app.db import session_scope
-        with session_scope() as session:
-            self.user_ids = {}
-            for subject, email in (("user_one", "one@example.test"), ("user_two", "two@example.test")):
-                row = User(email=email, password_hash="dormant", clerk_user_id=subject,
-                           webhook_key=f"hook-{subject}")
-                session.add(row)
-                session.flush()
-                self.user_ids[subject] = row.id
-        self.verifier = patch("app.auth.verify_clerk_request", side_effect=self._claims)
-        self.verifier.start()
-        self.addCleanup(self.verifier.stop)
-        self.recover_patch = patch("app.main.videos.recover")
-        self.loop_patch = patch("app.main.whatsapp.followup_loop", new=AsyncMock())
-        self.recover_patch.start(); self.loop_patch.start()
-        self.addCleanup(self.recover_patch.stop); self.addCleanup(self.loop_patch.stop)
-        self.client = TestClient(app)
-        self.client.__enter__()
-        self.addCleanup(self.client.__exit__, None, None, None)
-        self.use("user_one")
-
-    def _claims(self, request):
-        token = request.headers.get("authorization", "").removeprefix("Bearer ")
-        if not token and request.method in ("GET", "HEAD"):
-            token = request.cookies.get("__session", "")
-        if not token:
-            from fastapi import HTTPException
-            raise HTTPException(401, "not authenticated")      # like the real verifier
-        return {"sub": token, "sid": "test-session", "iss": "https://example.clerk.accounts.dev", "sts": "active"}
-
-    def use(self, subject):
-        self.client.headers["Authorization"] = f"Bearer {subject}"
-
+class ApiDatabaseTests(ApiTestCase):
     def test_existing_identity_mapping_preserves_tenant_isolation_and_demo_seed(self):
         from app.models import Campaign, Metric
         first, second = self.user_ids.values()
