@@ -50,6 +50,7 @@ class PublishIn(BaseModel):
     countries: list[str] = Field(default_factory=lambda: ["CO"], max_length=10)
     age_min: int = Field(18, ge=13, le=65)
     age_max: int = Field(65, ge=13, le=65)
+    daily_budget: Optional[float] = Field(None, gt=0, le=100_000_000)     # in the app currency; blank = the campaign's own
     validate_only: bool = False
 
 
@@ -139,7 +140,9 @@ def _rules(opts: PublishIn) -> list[dict]:
 
 def inspect(user_id: int, cid: int, opts: PublishIn) -> dict:
     """Everything the screen shows before publishing: ordered checks (ok / warn / block) and the money."""
-    row, state = _campaign(cid, user_id), None
+    row = _campaign(cid, user_id)
+    if opts.daily_budget:
+        row["daily_budget"] = opts.daily_budget
     state = _state(row)
     checks = []
 
@@ -227,6 +230,8 @@ def publish(cid: int, body: PublishIn, user: dict = Depends(current_user)):
     if not report["ok"]:
         raise HTTPException(400, "; ".join(c["message"] for c in report["checks"] if c["level"] == "block"))
     row = _campaign(cid, user["id"])
+    if body.daily_budget:
+        row["daily_budget"] = body.daily_budget
     state = _state(row)
     p = make_platform("meta", creds.get(user["id"], "meta"))
     meta_c = creds.get(user["id"], "meta")
@@ -269,6 +274,9 @@ def publish(cid: int, body: PublishIn, user: dict = Depends(current_user)):
         run("creative (check)", lambda: p.create_creative(creative_spec, validate=True))
         return {"validated": True, "steps": steps}
     state["options"] = body.model_dump()
+    if body.daily_budget:                                     # the campaign keeps the budget the ad set was made with
+        with session_scope() as sess:
+            sess.execute(update(Campaign).where(Campaign.id == cid, Campaign.user_id == user["id"]).values(daily_budget=body.daily_budget))
     if not state.get("adset_id"):
         state["adset_id"] = run("ad set", lambda: p.create_adset(row["external_id"], adset_spec))
         _save_state(cid, user["id"], state)

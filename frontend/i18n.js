@@ -176,6 +176,8 @@ const ES = {
   '{n} campaign(s) in Meta are not in youradds yet: import them first.': '{n} campaña(s) de Meta aún no están en youradds: impórtalas primero.',
   'Your Meta account is in {cur}; amounts are shown in {app} at today\'s exchange rate.': 'Tu cuenta de Meta está en {cur}; los montos se muestran en {app} con la tasa de cambio de hoy.',
   'Publish to Meta': 'Publicar en Meta',
+  'How much per day?': '¿Cuánto por día?',
+  'Nothing is spent until you press Activate.': 'No se gasta nada hasta que presiones Activar.',
   'Meta ad': 'Anuncio en Meta',
   'On Meta': 'En Meta',
   'Everything is created paused in your ad account. Nothing is spent until you press Activate.': 'Todo se crea en pausa en tu cuenta publicitaria. No se gasta nada hasta que presiones Activar.',

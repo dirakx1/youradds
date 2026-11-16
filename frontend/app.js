@@ -1,5 +1,5 @@
-import { auth } from './auth.js?v=brand-15';
-import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-15';
+import { auth } from './auth.js?v=brand-16';
+import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-16';
 
 const authPollers = new Set();
 
@@ -164,6 +164,9 @@ function publishDialog(c, done) {
         <div class="pub-ages"><label class="pf">${t('Age from')}<input name="age_min" type="number" min="13" max="65" value="18"></label>
         <label class="pf">${t('to')}<input name="age_max" type="number" min="13" max="65" value="65"></label></div>
         <p class="muted" style="margin:6px 0 0">${t('Meta finds the best people inside this range.')}</p></fieldset>
+      <fieldset class="pub-box"><legend>${t('How much per day?')}</legend>
+        <label class="pf">${t('Daily budget')} (${currency})<input name="daily_budget" type="number" min="1" step="any" value="${c.daily_budget > 0 ? c.daily_budget : (currency === 'COP' ? 50000 : 20)}"></label>
+        <p class="muted" style="margin:6px 0 0">${t('Nothing is spent until you press Activate.')}</p></fieldset>
     </div>
     <div class="pub-checks" aria-live="polite"><span class="muted">${t('Checking…')}</span></div>
     <p class="pub-money muted"></p>
@@ -177,7 +180,7 @@ function publishDialog(c, done) {
   dlg.addEventListener('close', () => { dlg.remove(); });
   const f = $('form', dlg), msg = $('.msgline', dlg), checks = $('.pub-checks', dlg), money = $('.pub-money', dlg);
   const opts = () => { const fd = new FormData(f); return { destination: fd.get('destination'), placements: fd.getAll('pl'),
-    countries: [fd.get('country')], age_min: +fd.get('age_min') || 18, age_max: +fd.get('age_max') || 65 }; };
+    countries: [fd.get('country')], age_min: +fd.get('age_min') || 18, age_max: +fd.get('age_max') || 65, daily_budget: +fd.get('daily_budget') || null }; };
   const say = (text, bad) => { msg.hidden = !text; msg.textContent = text || ''; msg.className = 'msgline ' + (bad ? 'toast' : 'muted'); };
   const ICON = { ok: '✓', warn: '!', block: '✕' };
   let current = null;

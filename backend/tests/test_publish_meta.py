@@ -93,6 +93,24 @@ class PublishTests(ApiTestCase):
             self.assertEqual(httpx.get(f"{self.meta}/{oid}", params={"access_token": "tok"}).json()["status"], "ACTIVE")
         self.assertEqual(httpx.get(f"{self.meta}/{self.camp['external_id']}", params={"access_token": "tok"}).json()["status"], "ACTIVE")
 
+    def test_a_budget_typed_in_the_panel_is_used_and_saved_when_the_campaign_has_none(self):
+        from app.db import session_scope
+        from app.models import Campaign
+        from sqlalchemy import update, select
+        self.client.post("/api/connections/meta/detect")
+        with session_scope() as s:
+            s.execute(update(Campaign).where(Campaign.id == self.cid).values(daily_budget=0))   # imported from Meta: no budget
+        blocked = self.client.post(f"/api/campaigns/{self.cid}/publish/check", json={}).json()
+        self.assertFalse(blocked["ok"])
+        ok = self.client.post(f"/api/campaigns/{self.cid}/publish/check", json={"daily_budget": 40000}).json()
+        self.assertTrue(ok["ok"], ok["checks"])
+        self.assertEqual(ok["money"]["account_amount"], 10.0)                                   # 40,000 COP at 0.00025
+        r = self.client.post(f"/api/campaigns/{self.cid}/publish", json={"daily_budget": 40000})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self.objs()[r.json()["state"]["adset_id"]]["params"]["daily_budget"], "1000")
+        with session_scope() as s:
+            self.assertEqual(s.scalar(select(Campaign.daily_budget).where(Campaign.id == self.cid)), 40000)
+
     def test_validate_only_creates_nothing(self):
         self.client.post("/api/connections/meta/detect")
         r = self.client.post(f"/api/campaigns/{self.cid}/publish", json={"validate_only": True})
