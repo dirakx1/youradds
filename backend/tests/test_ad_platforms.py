@@ -122,7 +122,7 @@ class ConnectorTests(FakeAdsCase):
     def test_rejected_credentials_raise_instead_of_returning_garbage(self):
         from app.platforms import make
         bad_meta = make("meta", {"access_token": "EXPIRED-token", "ad_account_id": "1"})
-        with self.assertRaises(httpx.HTTPStatusError):
+        with self.assertRaisesRegex(RuntimeError, "Meta: Error validating access token"):   # Meta's own words, no URL or token
             bad_meta.list_campaigns()
         bad_tt = make("tiktok", {"access_token": "EXPIRED-token", "advertiser_id": "1"})
         with self.assertRaisesRegex(RuntimeError, "TikTok API: Access token is incorrect"):

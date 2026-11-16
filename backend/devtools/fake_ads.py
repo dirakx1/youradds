@@ -132,7 +132,7 @@ def build_app() -> FastAPI:
             if request.method == "GET":
                 rows = [{k: v for k, v in c.items() if k != "acct"} for c in camps.values() if c["acct"] == acct]
                 return {"data": rows[: int(p.get("limit", 25))], "paging": {}}
-            for required in ("name", "objective", "special_ad_categories", "status"):
+            for required in ("name", "objective", "special_ad_categories", "status", "is_adset_budget_sharing_enabled"):
                 if required not in p:
                     return meta_err(f"(#100) Param {required} must be specified.", 100, typ="OAuthException")
             if p["objective"] not in META_OBJECTIVES:

@@ -68,7 +68,13 @@ class Meta(AdPlatform):
         data["access_token"] = self.c["access_token"]
         r = httpx.request(method, f"{base_url()}/{path}", data=data if method == "POST" else None,
                           params=data if method == "GET" else None, timeout=30)
-        r.raise_for_status()
+        if r.is_error:                       # Meta says why in the body; the raw httpx error says nothing useful
+            try:
+                e = r.json()["error"]
+                msg = e.get("error_user_msg") or e.get("error_user_title") or e.get("message") or ""
+            except (ValueError, KeyError, TypeError, AttributeError):
+                msg = ""
+            raise RuntimeError(f"Meta: {msg or 'HTTP ' + str(r.status_code)}"[:300])
         return r.json()
 
     def account_currency(self) -> str:
@@ -85,7 +91,8 @@ class Meta(AdPlatform):
     def create_campaign(self, c):
         res = self._call("POST", f"{self.acct}/campaigns",
                          name=c["name"], objective=OBJECTIVES.get(c["objective"], "OUTCOME_SALES"),
-                         status="PAUSED", special_ad_categories="[]")
+                         status="PAUSED", special_ad_categories="[]",
+                         is_adset_budget_sharing_enabled="false")   # required by Meta when the budget is on ad sets
         return res["id"]  # ad sets / creatives are created in a follow-up step (targeting + page id)
 
     def set_status(self, external_id, status):
