@@ -1,7 +1,8 @@
 import json
 
 import httpx
-from ..config import env
+from .. import fx
+from ..config import DEFAULT_CURRENCY, env
 from .base import AdPlatform
 
 # Graph API v21.0 is removed by Meta on 2027-01-21, so the version is configurable (META_GRAPH_VERSION).
@@ -14,6 +15,15 @@ def base_url() -> str:
     if env("META_GRAPH_URL"):
         return env("META_GRAPH_URL").rstrip("/")
     return f"https://graph.facebook.com/{env('META_GRAPH_VERSION') or GRAPH_VERSION}"
+
+# Meta takes budgets as integers in the account currency's smallest unit. Most currencies have 100 per unit (cents);
+# these have 1 (Meta's "currency offset" table), so 20000 COP is sent as 20000, never 2000000.
+OFFSET_ONE = {"CLP", "COP", "CRC", "HUF", "ISK", "IDR", "JPY", "KRW", "PYG", "TWD", "VND"}
+
+
+def minor_per_unit(currency: str) -> int:
+    return 1 if currency.upper() in OFFSET_ONE else 100
+
 
 OBJECTIVES = {"sales": "OUTCOME_SALES", "traffic": "OUTCOME_TRAFFIC", "leads": "OUTCOME_LEADS",
               "awareness": "OUTCOME_AWARENESS", "whatsapp": "OUTCOME_ENGAGEMENT"}
@@ -61,6 +71,17 @@ class Meta(AdPlatform):
         r.raise_for_status()
         return r.json()
 
+    def account_currency(self) -> str:
+        """The currency this ad account bills in (what every Meta amount is expressed in)."""
+        if not getattr(self, "_cur", None):
+            r = httpx.get(f"{base_url()}/{self.acct}", params={"fields": "currency", "access_token": self.c["access_token"]},
+                          timeout=30)
+            cur = (r.json().get("currency") if r.status_code < 300 else "") or ""
+            if not cur:
+                raise RuntimeError("Could not read the ad account's currency from Meta")
+            self._cur = cur.upper()
+        return self._cur
+
     def create_campaign(self, c):
         res = self._call("POST", f"{self.acct}/campaigns",
                          name=c["name"], objective=OBJECTIVES.get(c["objective"], "OUTCOME_SALES"),
@@ -71,15 +92,23 @@ class Meta(AdPlatform):
         self._call("POST", external_id, status="ACTIVE" if status == "active" else "PAUSED")
 
     def set_budget(self, external_id, daily_budget):
-        # Budget lives on ad sets unless CBO is used; campaign-level budget in cents.
-        self._call("POST", external_id, daily_budget=int(daily_budget * 100))
+        """daily_budget is in the currency youradds shows; Meta gets it in the account's currency and minor unit.
+        (A budget lives on ad sets unless CBO is used; this is the campaign-level one.)"""
+        cur = self.account_currency()
+        minor = round(fx.convert(daily_budget, DEFAULT_CURRENCY, cur) * minor_per_unit(cur))
+        if minor < 1:
+            raise RuntimeError(f"That budget is below Meta's minimum for a {cur} account")
+        self._call("POST", external_id, daily_budget=minor)
 
     def list_campaigns(self):
         res = self._call("GET", f"{self.acct}/campaigns",
                          fields="id,name,status,objective,daily_budget", limit=100)
+        data = res.get("data", [])
+        cur = self.account_currency() if any(x.get("daily_budget") for x in data) else DEFAULT_CURRENCY
+        rate = fx.rate(cur, DEFAULT_CURRENCY)          # budgets come back in the account's currency; show ours
         return [{"external_id": x["id"], "name": x["name"],
                  "status": "active" if x["status"] == "ACTIVE" else "paused",
-                 "daily_budget": int(x.get("daily_budget", 0)) / 100} for x in res.get("data", [])]
+                 "daily_budget": round(int(x.get("daily_budget", 0)) / minor_per_unit(cur) * rate, 2)} for x in data]
 
     def insights(self, since: str, until: str) -> list[dict]:
         """Daily per-campaign results between two ISO dates (inclusive), following Graph pagination."""

@@ -45,7 +45,19 @@ class ConnectorTests(FakeAdsCase):
         self.assertEqual(p.list_campaigns()[0]["status"], "paused")
 
     def test_meta_lifecycle(self):
-        self.lifecycle("meta", {"access_token": "tok", "ad_account_id": "act_555"}, 35.5)
+        from app.platforms import meta
+        with patch.object(meta, "DEFAULT_CURRENCY", "USD"):          # the fake account bills in USD: no conversion
+            self.lifecycle("meta", {"access_token": "tok", "ad_account_id": "act_555"}, 35.5)
+
+    def test_meta_budget_is_converted_from_the_app_currency_to_the_account_currency(self):
+        from app.platforms import make
+        p = make("meta", {"access_token": "tok", "ad_account_id": "act_556"})
+        ext = p.create_campaign(self.CAMPAIGN)
+        with patch.dict(os.environ, {"FX_RATE_COP_USD": "0.00025", "FX_RATE_USD_COP": "4000"}):
+            p.set_budget(ext, 50000)                                  # app is COP, fake account is USD
+            self.assertEqual(p.list_campaigns()[0]["daily_budget"], 50000.0)
+        raw = httpx.get(f"{self.base}/meta/v26.0/{ext}", params={"access_token": "tok", "fields": "daily_budget"}).json()
+        self.assertEqual(raw["daily_budget"], "1250")                 # 12.50 USD in cents
 
     def test_meta_account_id_with_and_without_prefix_is_the_same_account(self):
         from app.platforms import make

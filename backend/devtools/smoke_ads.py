@@ -20,6 +20,9 @@ import os
 import sys
 import time
 
+if "--fake" in sys.argv:                 # the fake bills in USD: show USD so no exchange rate is involved
+    os.environ["DEFAULT_CURRENCY"] = "USD"
+
 CREDS = {
     "meta": {"access_token": "META_ACCESS_TOKEN", "ad_account_id": "META_AD_ACCOUNT_ID"},
     "tiktok": {"access_token": "TIKTOK_ACCESS_TOKEN", "advertiser_id": "TIKTOK_ADVERTISER_ID"},

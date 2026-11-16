@@ -174,7 +174,7 @@ const ES = {
   'Getting your results…': 'Trayendo tus resultados…',
   'Results updated: {n} day(s) of data.': 'Resultados actualizados: {n} día(s) de datos.',
   '{n} campaign(s) in Meta are not in youradds yet: import them first.': '{n} campaña(s) de Meta aún no están en youradds: impórtalas primero.',
-  'Your Meta account reports in {cur} but youradds shows {app}: amounts are not converted.': 'Tu cuenta de Meta reporta en {cur} pero youradds muestra {app}: los montos no se convierten.',
+  'Your Meta account is in {cur}; amounts are shown in {app} at today\'s exchange rate.': 'Tu cuenta de Meta está en {cur}; los montos se muestran en {app} con la tasa de cambio de hoy.',
   'Which campaign should I scale?': '¿Qué campaña debería escalar?', 'Ask': 'Preguntar', 'Error: {e}': 'Error: {e}',
   // ---- Connections ----
   'These credentials belong to <b>your account only</b>. They are stored encrypted and never shown again after saving - leave a secret blank to keep it.':

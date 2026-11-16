@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
-from . import config, creds
+from . import config, creds, fx
 from .db import session_scope
 from .models import Campaign, Credential, Metric
 from .platforms import make as make_platform
@@ -28,6 +28,8 @@ def sync_user(user_id: int, platform: str = "meta", days: int = RESYNC_DAYS) -> 
     today = datetime.now(timezone.utc).date()
     rows = make_platform(platform, creds.get(user_id, platform)).insights(
         (today - timedelta(days=days - 1)).isoformat(), today.isoformat())
+    currency = next((r["currency"] for r in rows if r["currency"]), "")
+    rate = fx.rate(currency, config.DEFAULT_CURRENCY) if currency else 1.0   # store in the currency youradds shows
     saved, unmatched = 0, set()
     with session_scope() as session:
         ids = dict(session.execute(select(Campaign.external_id, Campaign.id).where(
@@ -38,12 +40,12 @@ def sync_user(user_id: int, platform: str = "meta", days: int = RESYNC_DAYS) -> 
                 unmatched.add(r["external_id"])
                 continue
             vals = {k: r[k] for k in ("impressions", "clicks", "spend", "conversions", "revenue")}
+            vals["spend"], vals["revenue"] = round(vals["spend"] * rate, 2), round(vals["revenue"] * rate, 2)
             stmt = insert(Metric).values(campaign_id=cid, day=r["day"], **vals)
             session.execute(stmt.on_conflict_do_update(index_elements=[Metric.campaign_id, Metric.day], set_=vals))
             saved += 1
-    currency = next((r["currency"] for r in rows if r["currency"]), "")
     return {"days": saved, "campaigns": len(ids), "unmatched": len(unmatched), "currency": currency,
-            "currency_mismatch": bool(currency) and currency != config.DEFAULT_CURRENCY}
+            "converted": bool(currency) and currency != config.DEFAULT_CURRENCY, "rate": rate}
 
 
 def run_all() -> int:

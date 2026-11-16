@@ -157,7 +157,7 @@ class ApiDatabaseTests(DatabaseTestCase):
         from devtools.fake_ads import env_for, serve_in_thread
         base, stop = serve_in_thread()
         self.addCleanup(stop)
-        with patch.dict(os.environ, env_for(base)):
+        with patch.dict(os.environ, {**env_for(base), "FX_RATE_USD_COP": "4000"}):
             self.assertEqual(self.client.post("/api/connections/meta/sync-metrics").status_code, 400)       # not connected
             self.client.put("/api/connections/meta", json={"values": {"access_token": "tok", "ad_account_id": "act_900"}})
             mine = self.client.post("/api/campaigns", json={"platform": "meta", "name": "Mine", "daily_budget": 50000}).json()
@@ -166,7 +166,8 @@ class ApiDatabaseTests(DatabaseTestCase):
                 {"name": "Not imported", "objective": "sales", "daily_budget": 1})                           # exists upstream only
             first = self.client.post("/api/connections/meta/sync-metrics").json()
             self.assertEqual((first["days"], first["unmatched"], first["currency"]), (30, 1, "USD"))
-            self.assertTrue(first["currency_mismatch"])                                                    # app currency is COP
+            self.assertTrue(first["converted"])                                                            # app currency is COP
+            self.assertEqual(first["rate"], 4000.0)
             self.assertEqual(self.client.post("/api/connections/meta/sync-metrics").json()["days"], 30)    # upsert, no duplicates
         from app.db import session_scope
         from sqlalchemy import func, select

@@ -162,7 +162,7 @@ def build_app() -> FastAPI:
         if re.fullmatch(r"(act_)?\d+", path):    # account / phone-number probes (?fields=id)
             if request.method == "POST":
                 return meta_err(f"Unsupported post request. Object with ID '{path}' does not exist, cannot be loaded due to missing permissions, or does not support this operation.", 100)
-            return {"id": path}
+            return {"id": path, "currency": state.get("currency", "USD")}
         return meta_err(f"Unknown path components: /{path}", 2500)
 
     # ------------------------------------------------------------------ TikTok Business API

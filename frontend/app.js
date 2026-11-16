@@ -637,7 +637,7 @@ const views = {
         try {
           const r = await api('/connections/meta/sync-metrics', { method: 'POST' });
           n.textContent = t('Results updated: {n} day(s) of data.', { n: r.days }) + (r.unmatched ? ' ' + t('{n} campaign(s) in Meta are not in youradds yet: import them first.', { n: r.unmatched }) : '');
-          if (r.currency_mismatch) { n.className = 'st-warn msgline'; n.textContent += ' ' + t('Your Meta account reports in {cur} but youradds shows {app}: amounts are not converted.', { cur: r.currency, app: currency }); }
+          if (r.converted) n.textContent += ' ' + t('Your Meta account is in {cur}; amounts are shown in {app} at today\'s exchange rate.', { cur: r.currency, app: currency });
         } catch (x) { n.className = 'toast msgline'; n.textContent = x.message; }
       };
       if (syn) syn.onclick = () => syncResults(note);
