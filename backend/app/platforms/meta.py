@@ -68,19 +68,17 @@ class Meta(AdPlatform):
         data["access_token"] = self.c["access_token"]
         r = httpx.request(method, f"{base_url()}/{path}", data=data if method == "POST" else None, files=_files,
                           params=data if method == "GET" else None, timeout=60 if _files else 30)
-        if r.is_error:                       # Meta says why in the body; the raw httpx error says nothing useful
-            try:
-                e = r.json()["error"]
-                msg = e.get("error_user_msg") or e.get("error_user_title") or e.get("message") or ""
-            except (ValueError, KeyError, TypeError, AttributeError):
-                msg = ""
-            code = ""
-            try:
-                code = f" [{r.json()['error'].get('error_subcode') or r.json()['error'].get('code')}]"
-            except (ValueError, KeyError, TypeError, AttributeError):
-                pass
+        try:
+            body = r.json()
+        except ValueError:
+            body = None
+        err = body.get("error") if isinstance(body, dict) else None
+        if r.is_error or err:                # Meta can answer HTTP 200 with an error body (e.g. "authenticate your account")
+            err = err if isinstance(err, dict) else {}
+            msg = err.get("error_user_msg") or err.get("error_user_title") or err.get("message") or ""
+            code = f" [{err.get('error_subcode') or err.get('code')}]" if (err.get("error_subcode") or err.get("code")) else ""
             raise RuntimeError(f"Meta: {msg or 'HTTP ' + str(r.status_code)}{code}"[:360])
-        return r.json()
+        return body if body is not None else {}
 
     def account_currency(self) -> str:
         """The currency this ad account bills in (what every Meta amount is expressed in)."""

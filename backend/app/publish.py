@@ -36,6 +36,8 @@ FRIENDLY = {   # Meta error sub-codes -> what to do about it
     "2446886": "Your Facebook Page is not linked to a WhatsApp Business account. Link it in Meta (Page settings, Linked accounts), "
                "or choose 'Website' as the destination.",
     "1487246": "That WhatsApp number is not linked to your Meta account.",
+    "3858385": "Meta wants you to verify your account before it allows new ads. Open Ads Manager, follow the "
+               "'Authenticate your account' prompt, then try again.",
 }
 
 

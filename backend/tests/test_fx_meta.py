@@ -64,6 +64,12 @@ class MetaBudgetTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.run_budget("USD", 1, rate=0.00025)
 
+    def test_an_error_inside_an_http_200_is_raised_not_treated_as_success(self):
+        body = {"error": {"message": "pending action", "error_user_msg": "Autentica tu cuenta", "error_subcode": 3858385}}
+        with patch.object(meta.httpx, "request", return_value=resp(body, 200)):
+            with self.assertRaisesRegex(RuntimeError, r"Autentica tu cuenta \[3858385\]"):
+                self.m.create_ad("x", "1", "2")
+
     def test_imported_budgets_come_back_in_the_app_currency(self):
         data = {"data": [{"id": "1", "name": "A", "status": "ACTIVE", "daily_budget": "1250"}]}
         with patch.object(meta, "DEFAULT_CURRENCY", "COP"), patch.dict("os.environ", {"FX_RATE_USD_COP": "4000"}), \
