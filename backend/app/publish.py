@@ -50,6 +50,28 @@ FRIENDLY_TEXT = {   # Meta messages without a sub-code
 }
 
 
+# Meta only accepts some ad-set goals for each campaign objective (the objective cannot be changed after the campaign exists).
+# (campaign objective, destination) -> optimization goal. Sales and leads on a website need a Meta Pixel, which youradds does not set up yet.
+GOALS = {("traffic", "website"): "LINK_CLICKS", ("awareness", "website"): "REACH",
+         ("traffic", "whatsapp"): "LINK_CLICKS", ("whatsapp", "whatsapp"): "CONVERSATIONS",
+         ("sales", "whatsapp"): "CONVERSATIONS", ("leads", "whatsapp"): "CONVERSATIONS"}
+NO_PIXEL = {"sales": "Meta needs a Meta Pixel to deliver a Sales campaign to a website, and youradds cannot set one up yet. "
+                     "Choose WhatsApp as the destination, or create a Traffic campaign for a website.",
+            "leads": "Meta needs a Meta Pixel to deliver a Leads campaign to a website, and youradds cannot set one up yet. "
+                     "Choose WhatsApp as the destination, or create a Traffic campaign for a website."}
+WHATSAPP_ONLY = "This is a WhatsApp campaign. Choose WhatsApp as the destination."
+
+
+def adset_goal(objective: str, destination: str) -> tuple[str | None, str]:
+    """(optimization goal, '') when the pair works, else (None, what to tell the owner)."""
+    goal = GOALS.get((objective, destination))
+    if goal:
+        return goal, ""
+    if objective == "whatsapp":
+        return None, WHATSAPP_ONLY
+    return None, NO_PIXEL.get(objective, NO_PIXEL["sales"])
+
+
 def friendly(msg: str) -> str:
     for needle, text in FRIENDLY_TEXT.items():
         if needle in msg:
@@ -187,6 +209,10 @@ def inspect(user_id: int, cid: int, opts: PublishIn) -> dict:
         add("block", "audience", "The minimum age is higher than the maximum.")
     if not opts.countries:
         add("block", "audience", "Choose at least one country.")
+    if row["platform"] == "meta":
+        goal, why = adset_goal(row["objective"], opts.destination)
+        if not goal:
+            add("block", "goal", why)
     # Page and Instagram
     page_id, ig, pages = (meta_c.get("page_id") or "").strip(), None, []
     if p:
@@ -294,7 +320,10 @@ def publish(cid: int, body: PublishIn, user: dict = Depends(current_user)):
         return out
     hashes = upload_images()
     link = row["landing_url"]
-    adset_spec = {"name": f"{row['name']} · {body.destination}"[:100], "daily_budget": row["daily_budget"],
+    goal, why = adset_goal(row["objective"], body.destination)
+    if not goal:
+        raise HTTPException(400, why)
+    adset_spec = {"name": f"{row['name']} · {body.destination}"[:100], "daily_budget": row["daily_budget"], "optimization_goal": goal,
                   "destination": body.destination, "targeting": _targeting(body), "page_id": page["id"],
                   "whatsapp_number": whatsapp_number(link)}
     creative_spec = {"name": row["name"][:100], "page_id": page["id"], "instagram_id": (page["instagram"] or {}).get("id"),

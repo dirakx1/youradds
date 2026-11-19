@@ -189,6 +189,31 @@ class PublishTests(ApiTestCase):
         self.assertEqual(self.objs(), {})
         self.assertIn("same ad account", publish.friendly("Meta: Your campaign must have the same account id as the adgroup you're creating."))
 
+    def test_the_ad_set_goal_follows_the_campaign_objective_and_pixel_only_cases_are_blocked_upfront(self):
+        from app import publish
+        self.assertEqual(publish.adset_goal("traffic", "website")[0], "LINK_CLICKS")
+        self.assertEqual(publish.adset_goal("sales", "whatsapp")[0], "CONVERSATIONS")
+        self.assertEqual(publish.adset_goal("awareness", "website")[0], "REACH")
+        self.assertIn("Meta Pixel", publish.adset_goal("sales", "website")[1])
+        self.assertIn("WhatsApp campaign", publish.adset_goal("whatsapp", "website")[1])
+        self.client.post("/api/connections/meta/detect")
+        sales = self.client.post("/api/campaigns", json={"platform": "meta", "name": "Ventas", "objective": "sales",
+                                                         "daily_budget": 50000}).json()["id"]
+        for i in self.creative_ids:
+            self.client.post(f"/api/creatives/{i}/attach", json={"campaign_id": sales})
+        check = self.client.post(f"/api/campaigns/{sales}/publish/check", json={}).json()
+        self.assertFalse(check["ok"])
+        self.assertTrue(any(c["key"] == "goal" and "Meta Pixel" in c["message"] for c in check["checks"]))
+        r = self.client.post(f"/api/campaigns/{sales}/publish", json={})
+        self.assertEqual((r.status_code, "Meta Pixel" in r.json()["detail"]), (400, True))
+        self.assertEqual(self.objs(), {})
+        from app.db import session_scope
+        from sqlalchemy import text
+        with session_scope() as s:
+            s.execute(text("UPDATE yourads.campaigns SET landing_url='https://wa.me/573001112233' WHERE id=:i"), {"i": sales})
+        ok = self.client.post(f"/api/campaigns/{sales}/publish", json={"destination": "whatsapp", "validate_only": True})
+        self.assertEqual(ok.status_code, 200, ok.text)                                        # sales + WhatsApp = CONVERSATIONS
+
     def test_whatsapp_destination_needs_the_page_linked_to_whatsapp(self):
         self.client.post("/api/connections/meta/detect")
         from app.db import session_scope

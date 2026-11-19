@@ -157,12 +157,13 @@ class Meta(AdPlatform):
         body = dict(name=spec["name"], campaign_id=campaign_id, daily_budget=self.to_minor(spec["daily_budget"]),
                     billing_event="IMPRESSIONS", bid_strategy="LOWEST_COST_WITHOUT_CAP", status="PAUSED",
                     targeting=json.dumps(spec["targeting"]))
+        goal = spec.get("optimization_goal")
         if spec["destination"] == "whatsapp":
-            body.update(optimization_goal="CONVERSATIONS", destination_type="WHATSAPP",
+            body.update(optimization_goal=goal or "CONVERSATIONS", destination_type="WHATSAPP",
                         promoted_object=json.dumps({"page_id": spec["page_id"],
                                                     "whatsapp_phone_number": spec["whatsapp_number"]}))
         else:
-            body.update(optimization_goal="LINK_CLICKS", destination_type="WEBSITE")
+            body.update(optimization_goal=goal or "LINK_CLICKS", destination_type="WEBSITE")
         if validate:
             body["execution_options"] = json.dumps(["validate_only"])
         return self._call("POST", f"{self.acct}/adsets", **body).get("id", "")

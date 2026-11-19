@@ -215,6 +215,11 @@ def build_app() -> FastAPI:
                             return meta_err(f"(#100) Param {req} must be specified.", 100)
                     if p["campaign_id"] not in camps:
                         return meta_err("Invalid parameter: campaign_id", 100)
+                    allowed = {"OUTCOME_TRAFFIC": {"LINK_CLICKS", "LANDING_PAGE_VIEWS", "REACH"}, "OUTCOME_AWARENESS": {"REACH", "IMPRESSIONS"},
+                               "OUTCOME_ENGAGEMENT": {"CONVERSATIONS"}, "OUTCOME_SALES": {"OFFSITE_CONVERSIONS", "CONVERSATIONS"},
+                               "OUTCOME_LEADS": {"LEAD_GENERATION", "CONVERSATIONS"}}
+                    if p["optimization_goal"] not in allowed.get(camps[p["campaign_id"]]["objective"], set()):
+                        return meta_err("No puedes usar el objetivo de rendimiento seleccionado con tu objetivo de campaña. Selecciona otro objetivo o edita tu campaña.", 100)
                     if not re.fullmatch(r"\d+", p["daily_budget"]):
                         return meta_err("Invalid parameter: daily_budget must be an integer", 100)
                     tg = json.loads(p["targeting"])

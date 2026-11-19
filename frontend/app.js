@@ -1,5 +1,5 @@
-import { auth } from './auth.js?v=brand-19';
-import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-19';
+import { auth } from './auth.js?v=brand-20';
+import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-20';
 
 const authPollers = new Set();
 
