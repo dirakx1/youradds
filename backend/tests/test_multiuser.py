@@ -142,3 +142,15 @@ class FacebookConnectTests(ApiTestCase):
         r = self.client.post("/api/oauth/meta/deauthorize", content=f"signed_request={self.signed('fbuser-ONE1')}", headers=hdr)
         self.assertEqual(r.status_code, 200)
         self.assertEqual(creds.get(uid, "meta"), {})
+
+    def test_facebook_login_for_business_sends_the_configuration_instead_of_scopes(self):
+        import os
+        from unittest.mock import patch
+        from urllib.parse import parse_qs, urlparse
+        q = parse_qs(urlparse(self.client.post("/api/oauth/meta/start").json()["url"]).query)
+        self.assertIn("scope", q)
+        self.assertNotIn("config_id", q)
+        with patch.dict(os.environ, {"META_LOGIN_CONFIG_ID": "CFG123"}):
+            q = parse_qs(urlparse(self.client.post("/api/oauth/meta/start").json()["url"]).query)
+        self.assertEqual((q["config_id"], q["override_default_response_type"], q["response_type"]), (["CFG123"], ["true"], ["code"]))
+        self.assertNotIn("scope", q)

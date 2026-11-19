@@ -126,9 +126,13 @@ def start(user: dict = Depends(current_user)):
     if not enabled():
         raise HTTPException(400, "Facebook login is not configured on this server")
     dialog = env("META_OAUTH_DIALOG_URL") or f"https://www.facebook.com/{_version()}/dialog/oauth"
-    return {"url": f"{dialog}?" + urlencode({"client_id": env("META_APP_ID"), "redirect_uri": _redirect_uri(),
-                                              "state": make_state(user["id"]), "scope": SCOPES,
-                                              "response_type": "code"})}
+    params = {"client_id": env("META_APP_ID"), "redirect_uri": _redirect_uri(), "state": make_state(user["id"]),
+              "response_type": "code"}
+    if env("META_LOGIN_CONFIG_ID"):       # Facebook Login for Business: the permissions live in the configuration, not in `scope`
+        params.update(config_id=env("META_LOGIN_CONFIG_ID"), override_default_response_type="true")
+    else:
+        params["scope"] = SCOPES
+    return {"url": f"{dialog}?" + urlencode(params)}
 
 
 @public.get("/callback")
