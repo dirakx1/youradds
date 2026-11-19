@@ -1,5 +1,5 @@
-import { auth } from './auth.js?v=brand-20';
-import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-20';
+import { auth } from './auth.js?v=brand-21';
+import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-21';
 
 const authPollers = new Set();
 
@@ -727,6 +727,15 @@ const views = {
       };
       if (clr) clr.onclick = async () => { if (confirm(t('Remove the saved {svc} credentials?', { svc }))) { await api('/connections/' + svc, { method: 'DELETE' }); views.connections(el); } };
     });
+    const READY = [
+      ['payment', 'Add a valid payment method to this ad account', 'https://business.facebook.com/billing_hub/payment_settings'],
+      ['nondiscrimination', 'Certify Meta\'s non-discrimination policy', 'https://www.facebook.com/certification/nondiscrimination'],
+      ['security', 'Complete Meta\'s account security check if it asks (Authenticate your account)', 'https://adsmanager.facebook.com'],
+    ];
+    const readyList = () => `<details class="ready" open><summary>${t('Before your first ad: 3 steps on Meta')}</summary><p class="muted">${t('Meta requires these on the ad account before an ad can be created. Do them once.')}</p><ul>${READY.map(([k, label, url]) => {
+      let on = ''; try { on = localStorage.getItem('ready:' + k) || ''; } catch {}
+      return `<li><label><input type="checkbox" data-ready="${k}"${on ? ' checked' : ''}> ${t(label)}</label> <a href="${url}" target="_blank" rel="noopener">${t('Open')}</a></li>`;
+    }).join('')}</ul></details>`;
     const metaBox = oa.enabled && $('form[data-s=meta] [data-oauth]', el);
     if (metaBox) {
       const flags = { denied: 'You cancelled the access on Facebook.', invalid: 'The sign-in link expired. Please try again.', failed: 'We could not finish connecting with Facebook. Please try again.', connected: 'Connected with Facebook.', taken: 'That Facebook account or ad account is already connected to another youradds account. Disconnect it there first, or contact contact@youradds.co.' };
@@ -758,6 +767,8 @@ const views = {
           <button type="button" data-change>${t('Change account')}</button> <button type="button"${soon ? ' class="pri"' : ''} data-fb>${t('Reconnect with Facebook')}</button>`;
         $('[data-change]', metaBox).onclick = picker;
         $('[data-fb]', metaBox).onclick = e => connect(e.target);
+        metaBox.insertAdjacentHTML('beforeend', readyList());
+        metaBox.querySelectorAll('[data-ready]').forEach(b => b.onchange = () => { try { localStorage.setItem('ready:' + b.dataset.ready, b.checked ? '1' : ''); } catch {} });
       } else {
         metaBox.innerHTML = `${note}<p>${t('Connect your account in one click. You do not need to copy any token.')}</p>${connectBtn(t('Connect with Facebook'))}`;
         $('[data-fb]', metaBox).onclick = e => connect(e.target);
