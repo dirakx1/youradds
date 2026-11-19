@@ -24,6 +24,7 @@ async def lifespan(app):
     await asyncio.to_thread(check_database_revision)
     await asyncio.to_thread(lambda: engine().connect().close())
     await asyncio.to_thread(videos.recover)
+    await asyncio.to_thread(creds.backfill_links)
     followups = asyncio.create_task(whatsapp.followup_loop())
     results = asyncio.create_task(insights.sync_loop())
     try:

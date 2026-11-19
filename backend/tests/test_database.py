@@ -14,7 +14,7 @@ class DatabaseTests(DatabaseTestCase):
         inspector = inspect(self.engine)
         self.assertEqual(set(inspector.get_table_names(schema="yourads")), {
             "alembic_version", "users", "sessions", "credentials", "campaigns", "metrics", "leads",
-            "messages", "creatives", "videos", "settings", "brands"})
+            "messages", "creatives", "videos", "settings", "brands", "connection_links"})
         self.assertIn("started_at", {c["name"] for c in inspector.get_columns("videos", schema="yourads")})
         self.assertIn("clerk_user_id", {c["name"] for c in inspector.get_columns("users", schema="yourads")})
         self.assertTrue(next(c for c in inspector.get_columns("users", schema="yourads")
@@ -148,7 +148,7 @@ class DatabaseTests(DatabaseTestCase):
             command.downgrade(cfg, "0001_postgres")
         with self.engine.connect() as connection:
             self.assertEqual(connection.execute(text("SELECT version_num FROM yourads.alembic_version")).scalar_one(),
-                             "0006_meta_publish")
+                             "0007_account_mode_links")
         with session_scope() as session:
             session.execute(text("DELETE FROM yourads.users WHERE email='clerk-only@example.test'"))
         command.downgrade(cfg, "0001_postgres")
@@ -157,7 +157,7 @@ class DatabaseTests(DatabaseTestCase):
             self.assertIsNotNone(c.execute(text("SELECT to_regclass('yourads.users')")).scalar_one())
         command.upgrade(cfg, "head")
         with self.engine.connect() as c:
-            self.assertEqual(c.execute(text("SELECT version_num FROM yourads.alembic_version")).scalar_one(), "0006_meta_publish")
+            self.assertEqual(c.execute(text("SELECT version_num FROM yourads.alembic_version")).scalar_one(), "0007_account_mode_links")
 
     def test_supplied_alembic_connection_keeps_transaction_caller_owned(self):
         from alembic import command
@@ -170,7 +170,7 @@ class DatabaseTests(DatabaseTestCase):
             command.downgrade(cfg, "base")
             with self.engine.connect() as observer:
                 self.assertEqual(observer.execute(text("SELECT version_num FROM yourads.alembic_version")).scalar_one(),
-                                 "0006_meta_publish")
+                                 "0007_account_mode_links")
                 self.assertIsNotNone(observer.execute(text("SELECT to_regclass('yourads.users')")).scalar_one())
         cfg.attributes.pop("connection", None)
         with self.engine.connect() as observer:

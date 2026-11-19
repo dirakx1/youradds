@@ -83,7 +83,7 @@ def _profile(user: Any) -> tuple[str, str | None]:
 
 def _resolve_user(clerk_user_id: str) -> dict:
     with session_scope() as session:
-        row = session.execute(select(User.id, User.email, User.name, User.webhook_key)
+        row = session.execute(select(User.id, User.email, User.name, User.webhook_key, User.mode)
                               .where(User.clerk_user_id == clerk_user_id)).mappings().one_or_none()
         if row:
             return dict(row)
@@ -92,7 +92,7 @@ def _resolve_user(clerk_user_id: str) -> dict:
         with session_scope() as session:
             # Serialize first provisioning so demo rows are seeded once, even across workers.
             session.execute(select(func.pg_advisory_xact_lock(714206392)))
-            row = session.execute(select(User.id, User.email, User.name, User.webhook_key)
+            row = session.execute(select(User.id, User.email, User.name, User.webhook_key, User.mode)
                                   .where(User.clerk_user_id == clerk_user_id)).mappings().one_or_none()
             if row:
                 return dict(row)
@@ -107,7 +107,7 @@ def _resolve_user(clerk_user_id: str) -> dict:
             if session.scalar(select(Campaign.id).where(Campaign.user_id == account.id).limit(1)) is None:
                 seed_demo(session, account.id)
             return {"id": account.id, "email": account.email, "name": account.name,
-                    "webhook_key": account.webhook_key}
+                    "webhook_key": account.webhook_key, "mode": account.mode}
     except IntegrityError as exc:
         # A subject/email uniqueness race is not an authorization path to another user.
         raise HTTPException(409, "account mapping conflict; explicit operator linking is required") from exc
@@ -131,4 +131,4 @@ def auth_config():
 
 @router.get("/me")
 def me(user: dict = Depends(current_user)):
-    return {"id": user["id"], "email": user["email"], "name": user["name"]}
+    return {"id": user["id"], "email": user["email"], "name": user["name"], "mode": user["mode"]}

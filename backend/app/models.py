@@ -21,6 +21,7 @@ class User(Base):
     password_hash: Mapped[str | None] = mapped_column(Text)
     clerk_user_id: Mapped[str | None] = mapped_column(Text)
     webhook_key: Mapped[str] = mapped_column(Text, nullable=False)
+    mode: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'self'"))   # 'self' or 'managed' (set by youradds staff)
     created_at: Mapped[str | None] = mapped_column(Text, server_default=UTC_NOW)
 
 
@@ -39,7 +40,20 @@ class Credential(Base):
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey(f"{SCHEMA}.users.id", ondelete="CASCADE"), primary_key=True)
     service: Mapped[str] = mapped_column(Text, primary_key=True)
     data: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'manual'"))   # manual | oauth | partner
+    expires_at: Mapped[str | None] = mapped_column(Text)                                          # token expiry, UTC
     updated_at: Mapped[str | None] = mapped_column(Text, server_default=UTC_NOW)
+
+
+class ConnectionLink(Base):
+    """Which youradds account owns an external account (e.g. a Meta ad account); one owner per external id."""
+    __tablename__ = "connection_links"
+    __table_args__ = (UniqueConstraint("service", "kind", "external_id", name="uq_connection_links_external"), {"schema": SCHEMA})
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey(f"{SCHEMA}.users.id", ondelete="CASCADE"), primary_key=True)
+    service: Mapped[str] = mapped_column(Text, primary_key=True)
+    kind: Mapped[str] = mapped_column(Text, primary_key=True)
+    external_id: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[str | None] = mapped_column(Text, server_default=UTC_NOW)
 
 
 class Campaign(Base):

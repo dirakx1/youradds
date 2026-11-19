@@ -9,13 +9,31 @@ from functools import lru_cache
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+import logging
+
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import IntegrityError
 
 from .auth import current_user
 from .config import SECRET_KEY_FILE, SHARED_HIGGSFIELD, env
 from .db import session_scope
-from .models import Credential
+from .models import ConnectionLink, Credential
+
+log = logging.getLogger(__name__)
+
+# (service, kind, credential field): the external account that may belong to only one youradds account
+LINKED = {"meta": ("ad_account", "ad_account_id"), "tiktok": ("advertiser", "advertiser_id"), "google": ("customer", "customer_id")}
+
+
+class AlreadyConnected(Exception):
+    pass
+
+
+def _external_id(service: str, values: dict) -> str:
+    kind = LINKED.get(service)
+    raw = (values.get(kind[1]) if kind else "") or ""
+    return "".join(ch for ch in raw if ch.isalnum()).lower().removeprefix("act") if service == "meta" else "".join(ch for ch in raw if ch.isalnum())
 
 # service -> ordered fields. secret=True values are masked in API responses. required = needed to be "connected".
 SERVICES = {
@@ -77,11 +95,51 @@ def get(user_id: int, service: str) -> dict:
         return {}     # key changed / corrupted: treat as not connected rather than crash
 
 
+def _claim(session, user_id: int, service: str, values: dict):
+    """Record that this account owns the external account in `values`, or raise AlreadyConnected if another one does."""
+    if service not in LINKED:
+        return
+    kind, _ = LINKED[service]
+    external = _external_id(service, values)
+    session.execute(delete(ConnectionLink).where(ConnectionLink.user_id == user_id, ConnectionLink.service == service,
+                                                 ConnectionLink.kind == kind))
+    if not external:
+        return
+    owner = session.scalar(select(ConnectionLink.user_id).where(ConnectionLink.service == service, ConnectionLink.kind == kind,
+                                                                ConnectionLink.external_id == external))
+    if owner is not None and owner != user_id:
+        raise AlreadyConnected()
+    session.add(ConnectionLink(user_id=user_id, service=service, kind=kind, external_id=external))
+
+
+def backfill_links() -> int:
+    """Link the accounts saved before ownership was tracked. The first account that holds an external id keeps it."""
+    claimed = 0
+    with session_scope() as session:
+        rows = session.execute(select(Credential.user_id, Credential.service, Credential.data)
+                               .where(Credential.service.in_(list(LINKED))).order_by(Credential.updated_at, Credential.user_id)).all()
+    for user_id, service, data in rows:
+        try:
+            values = json.loads(_fernet().decrypt(data.encode()))
+        except (InvalidToken, ValueError):
+            continue
+        try:
+            with session_scope() as session:
+                _claim(session, user_id, service, values)
+            claimed += 1
+        except (AlreadyConnected, IntegrityError):
+            log.warning("account %s shares its %s account with another youradds account; link not recorded", user_id, service)
+    return claimed
+
+
 def _save(user_id: int, service: str, values: dict):
     with session_scope() as session:
         if not values:
             session.execute(delete(Credential).where(Credential.user_id == user_id, Credential.service == service))
+            if service in LINKED:
+                session.execute(delete(ConnectionLink).where(ConnectionLink.user_id == user_id, ConnectionLink.service == service))
             return
+        _claim(session, user_id, service, values)
         enc = _fernet().encrypt(json.dumps(values).encode()).decode()
         stmt = insert(Credential).values(user_id=user_id, service=service, data=enc)
         session.execute(stmt.on_conflict_do_update(index_elements=[Credential.user_id, Credential.service],
@@ -180,7 +238,11 @@ def save(service: str, body: ConnIn, user: dict = Depends(current_user)):
         raise HTTPException(400, "Higgsfield key must look like ID:SECRET")
     if service == "whatsapp" and cur.get("phone_id") and not cur.get("verify_token"):
         cur["verify_token"] = secrets.token_urlsafe(16)
-    _save(user["id"], service, cur)
+    try:
+        _save(user["id"], service, cur)
+    except AlreadyConnected:
+        raise HTTPException(409, "That account is already connected to another youradds account. "
+                                 "If it is yours, disconnect it there first or contact contact@youradds.co.")
     return _describe(user, service)
 
 

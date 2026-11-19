@@ -51,13 +51,23 @@ Our side, done before submission:
 - Decide whether the data-deletion page should promise a deletion time frame (it currently says we will confirm by email, with no number of days).
 - Deauthorize and data-deletion **callbacks** are built in Phase 2; the instructions URL is enough to submit the settings now.
 
-### Phase 1: Multi-tenant foundation
+### Phase 1: Multi-tenant foundation (audit done, first slice built 2026-11-18)
 
-- Confirm each Clerk user maps to an account; scope every query and endpoint by account (today it is mostly "account 5").
-- Add an account `mode` field: `self` | `managed`.
-- Per-account connection storage: encrypted token, `expires_at`, Meta user id, granted scopes, selected ad account / Page / Instagram / WhatsApp number.
-- Unique constraint enforcing one youradds account per Meta user and per ad account.
-- Alembic migration; update the asserted head in `tests/test_database.py`.
+Audit result: the app already scopes campaigns, creatives, videos, leads, brand and credentials by `user_id`, and WhatsApp webhooks route by a per-user key. "Account" is currently the same thing as the user. A separate accounts table (teams, several people on one account) is not needed yet; add it later if team members become a requirement.
+
+Built (migration `0007_account_mode_links`):
+
+- `users.mode` (`self` | `managed`, default `self`, check constraint) and returned by `/api/auth/me`. Switching to `managed` is a Phase 3 staff action; no public endpoint changes it.
+- `credentials.source` (`manual` | `oauth` | `partner`) and `credentials.expires_at` for token expiry, ready for Phase 2.
+- `connection_links`: one youradds account per external ad account (Meta ad account, TikTok advertiser, Google customer), unique per service, kind and normalized id (`act_555`, `555` and ` ACT_555 ` are the same). Saving a connection that belongs to another account answers 409; disconnecting or switching frees it. A startup backfill links accounts saved before this existed (first holder wins, conflicts are logged).
+- Tests (`tests/test_multiuser.py`): default mode and constraint, uniqueness with spelling variants, freeing and switching, repeat save, tenant isolation of connections and campaigns, backfill.
+
+Still to do in Phase 1:
+
+- Store the Meta user id and granted scopes with the connection (comes with the OAuth callback in Phase 2).
+- Isolation tests for creatives, videos, leads and brand endpoints (campaigns and connections are covered).
+- Confirm the production data has no ad account shared by two accounts before deploying (the backfill logs conflicts and keeps the first).
+- Decide whether sign-up should stay open (`ALLOW_SIGNUP`) or be invite-only until App Review is done.
 
 ### Phase 2: Self-managed Meta connect
 
