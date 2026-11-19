@@ -176,6 +176,19 @@ class PublishTests(ApiTestCase):
         self.assertIn("connected to 901", r.json()["detail"])
         self.assertEqual(self.objs(), {})                                                   # nothing was created
 
+    def test_a_campaign_this_login_cannot_read_is_refused_and_the_meta_message_is_explained(self):
+        from app.db import session_scope
+        from sqlalchemy import text
+        from app import publish
+        self.client.post("/api/connections/meta/detect")
+        with session_scope() as s:
+            s.execute(text("UPDATE yourads.campaigns SET external_id='424242' WHERE id=:i"), {"i": self.cid})
+        r = self.client.post(f"/api/campaigns/{self.cid}/publish", json={})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("most likely belongs to another ad account", r.json()["detail"])
+        self.assertEqual(self.objs(), {})
+        self.assertIn("same ad account", publish.friendly("Meta: Your campaign must have the same account id as the adgroup you're creating."))
+
     def test_whatsapp_destination_needs_the_page_linked_to_whatsapp(self):
         self.client.post("/api/connections/meta/detect")
         from app.db import session_scope

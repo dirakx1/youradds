@@ -65,12 +65,13 @@ class Meta(AdPlatform):
     def acct_digits(self) -> str:
         return "".join(ch for ch in self.acct if ch.isdigit())
 
-    def campaign_account(self, external_id: str) -> str:
-        """The ad account a campaign lives in (digits), or '' when Meta does not say."""
+    def campaign_account(self, external_id: str) -> str | None:
+        """The ad account a campaign lives in (digits); None when this login cannot read the campaign at all."""
         try:
-            return "".join(ch for ch in str(self._call("GET", external_id, fields="account_id").get("account_id", "")) if ch.isdigit())
+            res = self._call("GET", external_id, fields="account_id")
         except RuntimeError:
-            return ""
+            return None
+        return "".join(ch for ch in str(res.get("account_id", "")) if ch.isdigit())
 
     def configured(self):
         return bool(self.c.get("access_token") and self.c.get("ad_account_id"))

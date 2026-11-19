@@ -41,7 +41,19 @@ FRIENDLY = {   # Meta error sub-codes -> what to do about it
 }
 
 
+WRONG_ACCOUNT = ("Meta does not let your current login see this campaign, so it most likely belongs to another ad account. "
+                 "Connect the ad account the campaign belongs to, or create a new campaign and publish that one.")
+FRIENDLY_TEXT = {   # Meta messages without a sub-code
+    "same account id as the adgroup": "The campaign, its ad set and the ad must all be in the same ad account, but this campaign "
+                                      "was made in another one. Connect the ad account the campaign belongs to, or create a new "
+                                      "campaign and publish that one.",
+}
+
+
 def friendly(msg: str) -> str:
+    for needle, text in FRIENDLY_TEXT.items():
+        if needle in msg:
+            return text
     m = re.search(r"\[(\d+)\]\s*$", msg)
     return FRIENDLY.get(m.group(1), re.sub(r"\s*\[\d+\]\s*$", "", msg)) if m else msg
 
@@ -161,7 +173,9 @@ def inspect(user_id: int, cid: int, opts: PublishIn) -> dict:
         add("block", "campaign", "This campaign is not in Meta yet. Recreate it so it is created there first.")
     if p and row["external_id"]:
         owner = p.campaign_account(row["external_id"])
-        if owner and owner != p.acct_digits:
+        if owner is None:
+            add("block", "account", WRONG_ACCOUNT)
+        elif owner and owner != p.acct_digits:
             add("block", "account", f"This campaign was created in Meta ad account {owner}, but you are connected to {p.acct_digits}. "
                                     "Connect the ad account the campaign belongs to, or create a new campaign and publish that one.")
     if state.get("ad_id"):
@@ -257,6 +271,8 @@ def publish(cid: int, body: PublishIn, user: dict = Depends(current_user)):
             raise HTTPException(400, f"{name}: {friendly(str(e))}")
 
     owner = p.campaign_account(row["external_id"])
+    if owner is None:
+        raise HTTPException(400, WRONG_ACCOUNT)
     if owner and owner != p.acct_digits:
         raise HTTPException(400, f"This campaign was created in Meta ad account {owner}, but you are connected to {p.acct_digits}. "
                                  "Connect the ad account the campaign belongs to, or create a new campaign and publish that one.")

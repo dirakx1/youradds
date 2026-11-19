@@ -273,6 +273,8 @@ def build_app() -> FastAPI:
                     return meta_err("Invalid parameter: daily_budget must be an integer in the account currency's minor unit (cents)", 100)
                 c["daily_budget"] = p["daily_budget"]
             return {"success": True}
+        if request.method == "GET" and p.get("fields") == "account_id" and path not in camps:
+            return meta_err(f"Unsupported get request. Object with ID '{path}' does not exist, cannot be loaded due to missing permissions, or does not support this operation.", 100)
         if re.fullmatch(r"(act_)?\d+", path):    # account / phone-number probes (?fields=id)
             if request.method == "POST":
                 return meta_err(f"Unsupported post request. Object with ID '{path}' does not exist, cannot be loaded due to missing permissions, or does not support this operation.", 100)
