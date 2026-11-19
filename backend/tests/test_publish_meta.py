@@ -150,6 +150,32 @@ class PublishTests(ApiTestCase):
         self.assertEqual(self.client.post(f"/api/campaigns/{self.cid}/publish", json={}).status_code, 400)
         self.assertEqual(sorted(o["kind"] for o in self.objs().values()), ["adcreatives", "adsets"])   # no extra creative on a fresh run
 
+    def test_an_image_saved_by_an_earlier_login_is_uploaded_again_once(self):
+        from app.db import session_scope
+        from sqlalchemy import text
+        self.client.post("/api/connections/meta/detect")
+        first = self.client.post(f"/api/campaigns/{self.cid}/publish", json={"validate_only": True})
+        self.assertEqual(first.status_code, 200, first.text)
+        with session_scope() as s:
+            stale = [r[0] for r in s.execute(text("SELECT image_hash FROM yourads.creatives WHERE image_hash IS NOT NULL")).all()]
+        self.assertTrue(stale)
+        self.flags(bad_hashes=stale)                                                        # the saved hashes are no longer usable
+        ok = self.client.post(f"/api/campaigns/{self.cid}/publish", json={})
+        self.assertEqual(ok.status_code, 200, ok.text)
+        with session_scope() as s:
+            fresh = [r[0] for r in s.execute(text("SELECT image_hash FROM yourads.creatives WHERE image_hash IS NOT NULL")).all()]
+        self.assertFalse(set(fresh) & set(stale))
+        self.assertEqual(sorted(o["kind"] for o in self.objs().values()), ["adcreatives", "ads", "adsets"])
+
+    def test_a_campaign_from_another_ad_account_is_refused_with_a_clear_message(self):
+        self.client.post("/api/connections/meta/detect")
+        self.client.put("/api/connections/meta", json={"values": {"ad_account_id": "act_901"}})     # connected to a different account
+        r = self.client.post(f"/api/campaigns/{self.cid}/publish", json={})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("created in Meta ad account 900", r.json()["detail"])
+        self.assertIn("connected to 901", r.json()["detail"])
+        self.assertEqual(self.objs(), {})                                                   # nothing was created
+
     def test_whatsapp_destination_needs_the_page_linked_to_whatsapp(self):
         self.client.post("/api/connections/meta/detect")
         from app.db import session_scope

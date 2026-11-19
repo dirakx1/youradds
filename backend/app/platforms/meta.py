@@ -61,6 +61,17 @@ class Meta(AdPlatform):
         a = self.c.get("ad_account_id", "").strip()
         return a if a.startswith("act_") else f"act_{a}"
 
+    @property
+    def acct_digits(self) -> str:
+        return "".join(ch for ch in self.acct if ch.isdigit())
+
+    def campaign_account(self, external_id: str) -> str:
+        """The ad account a campaign lives in (digits), or '' when Meta does not say."""
+        try:
+            return "".join(ch for ch in str(self._call("GET", external_id, fields="account_id").get("account_id", "")) if ch.isdigit())
+        except RuntimeError:
+            return ""
+
     def configured(self):
         return bool(self.c.get("access_token") and self.c.get("ad_account_id"))
 

@@ -202,7 +202,7 @@ def build_app() -> FastAPI:
             raw = await request.body()
             if not raw or b"filename" not in raw:
                 return meta_err("(#100) Param filename must be specified.", 100)
-            h = "hash" + str(len(raw))
+            h = "hash" + str(len(raw)) + "_" + str(nid())
             return {"images": {"filename": {"hash": h, "url": "https://fake/" + h}}}
         m = re.fullmatch(r"(act_\d+)/(adsets|adcreatives|ads)", path)
         if m and request.method == "POST":
@@ -230,6 +230,8 @@ def build_app() -> FastAPI:
                     story, feed = json.loads(p["object_story_spec"]), json.loads(p["asset_feed_spec"])
                     if not story.get("page_id"):
                         return meta_err("Invalid parameter: object_story_spec.page_id", 100)
+                    if any(i.get("hash") in state.get("bad_hashes", []) for i in feed["images"]):
+                        return meta_err("La imagen que seleccionaste no está disponible. Es posible que se haya eliminado o que no tengas permiso para usarla en anuncios. Selecciona otra imagen.", 100)
                     labels = {l["name"] for i in feed["images"] for l in i["adlabels"]}
                     for rule in feed.get("asset_customization_rules", []):
                         if rule["image_label"]["name"] not in labels:
@@ -261,7 +263,7 @@ def build_app() -> FastAPI:
         if path in camps:
             c = camps[path]
             if request.method == "GET":
-                return {k: v for k, v in c.items() if k != "acct"}
+                return {**{k: v for k, v in c.items() if k != "acct"}, "account_id": c["acct"].removeprefix("act_")}
             if "status" in p:
                 if p["status"] not in ("ACTIVE", "PAUSED", "ARCHIVED", "DELETED"):
                     return meta_err("Invalid parameter: status", 100)

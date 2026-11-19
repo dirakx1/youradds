@@ -159,6 +159,11 @@ def inspect(user_id: int, cid: int, opts: PublishIn) -> dict:
         add("block", "connection", "Connect Meta first (Connections).")
     if not row["external_id"]:
         add("block", "campaign", "This campaign is not in Meta yet. Recreate it so it is created there first.")
+    if p and row["external_id"]:
+        owner = p.campaign_account(row["external_id"])
+        if owner and owner != p.acct_digits:
+            add("block", "account", f"This campaign was created in Meta ad account {owner}, but you are connected to {p.acct_digits}. "
+                                    "Connect the ad account the campaign belongs to, or create a new campaign and publish that one.")
     if state.get("ad_id"):
         add("ok", "published", "Already published to Meta (paused until you activate it).")
     bad = [n for n in opts.placements if n not in PLACEMENTS]
@@ -251,19 +256,27 @@ def publish(cid: int, body: PublishIn, user: dict = Depends(current_user)):
             _save_state(cid, user["id"], state)            # keep what already worked so a retry resumes here
             raise HTTPException(400, f"{name}: {friendly(str(e))}")
 
+    owner = p.campaign_account(row["external_id"])
+    if owner and owner != p.acct_digits:
+        raise HTTPException(400, f"This campaign was created in Meta ad account {owner}, but you are connected to {p.acct_digits}. "
+                                 "Connect the ad account the campaign belongs to, or create a new campaign and publish that one.")
     groups = pick_group_images(_images(cid, user["id"]))
     needed = {PLACEMENTS[n][3] for n in body.placements}
-    hashes = {}
-    for g in needed:                                          # 1. images (uploaded once per creative)
-        cr = groups[g]
-        def up(cr=cr):
-            if not cr["image_hash"]:
-                h = p.upload_image(cr["file"], (CREATIVES_DIR / cr["file"]).read_bytes())
-                with session_scope() as s:
-                    s.execute(update(Creative).where(Creative.id == cr["id"]).values(image_hash=h))
-                cr["image_hash"] = h
-            return cr["image_hash"]
-        hashes[g] = run(f"image ({g})", up)
+
+    def upload_images(force=False):                           # 1. images (uploaded once per creative)
+        out = {}
+        for g in needed:
+            cr = groups[g]
+            def up(cr=cr):
+                if force or not cr["image_hash"]:
+                    h = p.upload_image(cr["file"], (CREATIVES_DIR / cr["file"]).read_bytes())
+                    with session_scope() as s_:
+                        s_.execute(update(Creative).where(Creative.id == cr["id"]).values(image_hash=h))
+                    cr["image_hash"] = h
+                return cr["image_hash"]
+            out[g] = run(f"image ({g})", up)
+        return out
+    hashes = upload_images()
     link = row["landing_url"]
     adset_spec = {"name": f"{row['name']} · {body.destination}"[:100], "daily_budget": row["daily_budget"],
                   "destination": body.destination, "targeting": _targeting(body), "page_id": page["id"],
@@ -271,6 +284,19 @@ def publish(cid: int, body: PublishIn, user: dict = Depends(current_user)):
     creative_spec = {"name": row["name"][:100], "page_id": page["id"], "instagram_id": (page["instagram"] or {}).get("id"),
                      "images": hashes, "rules": _rules(body), "body": row["body"], "title": row["headline"], "link": link,
                      "cta": cta_type(row["cta"], body.destination), "destination": body.destination}
+
+    def make_creative():
+        try:
+            return run("creative", lambda: p.create_creative(creative_spec))
+        except HTTPException as e:
+            # An image hash saved by an earlier attempt can be unusable now (another app, login or ad account):
+            # upload the images again once and retry.
+            if not any(w in str(e.detail).lower() for w in ("imagen", "image")) or force_done:
+                raise
+            force_done.append(1)
+            creative_spec["images"] = upload_images(force=True)
+            return run("creative", lambda: p.create_creative(creative_spec))
+    force_done = []
     if body.validate_only:                                    # ask Meta to check, create nothing
         run("ad set (check)", lambda: p.create_adset(row["external_id"], adset_spec, validate=True))
         run("creative (check)", lambda: p.create_creative(creative_spec, validate=True))
@@ -284,7 +310,7 @@ def publish(cid: int, body: PublishIn, user: dict = Depends(current_user)):
         state["adset_id"] = run("ad set", lambda: p.create_adset(row["external_id"], adset_spec))
         _save_state(cid, user["id"], state)
     if not state.get("creative_id"):
-        state["creative_id"] = run("creative", lambda: p.create_creative(creative_spec))
+        state["creative_id"] = make_creative()
         _save_state(cid, user["id"], state)
     if not state.get("ad_id"):
         try:
@@ -294,7 +320,7 @@ def publish(cid: int, body: PublishIn, user: dict = Depends(current_user)):
             # Make a fresh one once and retry; a creative that was just made in this run is not retried.
             if not reused_creative or "creativ" not in str(e.detail).lower():
                 raise
-            state["creative_id"] = run("creative", lambda: p.create_creative(creative_spec))
+            state["creative_id"] = make_creative()
             _save_state(cid, user["id"], state)
             state["ad_id"] = run("ad", lambda: p.create_ad(row["name"][:100], state["adset_id"], state["creative_id"]))
     _save_state(cid, user["id"], state)

@@ -226,6 +226,7 @@ const ES = {
   'Your Facebook Page is not linked to a WhatsApp Business account. Link it in Meta (Page settings, Linked accounts), or choose \'Website\' as the destination.': 'Tu Página de Facebook no está vinculada a una cuenta de WhatsApp Business. Vincúlala en Meta (configuración de la Página, Cuentas vinculadas) o elige \'Página web\' como destino.',
   'That WhatsApp number is not linked to your Meta account.': 'Ese número de WhatsApp no está vinculado a tu cuenta de Meta.',
   'That Facebook account or ad account is already connected to another youradds account. Disconnect it there first, or contact contact@youradds.co.': 'Esa cuenta de Facebook o cuenta publicitaria ya está conectada a otra cuenta de youradds. Desconéctala allí primero o escribe a contact@youradds.co.',
+  'This campaign was created in Meta ad account {a}, but you are connected to {b}. Connect the ad account the campaign belongs to, or create a new campaign and publish that one.': 'Esta campaña se creó en la cuenta publicitaria de Meta {a}, pero estás conectado a {b}. Conecta la cuenta publicitaria a la que pertenece la campaña, o crea una campaña nueva y publícala.',
   'Advanced: paste a token manually': 'Avanzado: pegar un token manualmente',
   'Reconnect with Facebook': 'Reconectar con Facebook',
   'Connect with Facebook': 'Conectar con Facebook',
