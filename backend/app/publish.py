@@ -279,6 +279,7 @@ def publish(cid: int, body: PublishIn, user: dict = Depends(current_user)):
     if body.daily_budget:                                     # the campaign keeps the budget the ad set was made with
         with session_scope() as sess:
             sess.execute(update(Campaign).where(Campaign.id == cid, Campaign.user_id == user["id"]).values(daily_budget=body.daily_budget))
+    reused_creative = bool(state.get("creative_id"))
     if not state.get("adset_id"):
         state["adset_id"] = run("ad set", lambda: p.create_adset(row["external_id"], adset_spec))
         _save_state(cid, user["id"], state)
@@ -286,7 +287,16 @@ def publish(cid: int, body: PublishIn, user: dict = Depends(current_user)):
         state["creative_id"] = run("creative", lambda: p.create_creative(creative_spec))
         _save_state(cid, user["id"], state)
     if not state.get("ad_id"):
-        state["ad_id"] = run("ad", lambda: p.create_ad(row["name"][:100], state["adset_id"], state["creative_id"]))
+        try:
+            state["ad_id"] = run("ad", lambda: p.create_ad(row["name"][:100], state["adset_id"], state["creative_id"]))
+        except HTTPException as e:
+            # A creative saved by an earlier attempt can be unusable now (made under another app, token or login).
+            # Make a fresh one once and retry; a creative that was just made in this run is not retried.
+            if not reused_creative or "creativ" not in str(e.detail).lower():
+                raise
+            state["creative_id"] = run("creative", lambda: p.create_creative(creative_spec))
+            _save_state(cid, user["id"], state)
+            state["ad_id"] = run("ad", lambda: p.create_ad(row["name"][:100], state["adset_id"], state["creative_id"]))
     _save_state(cid, user["id"], state)
     return {"published": True, "steps": steps, "state": state}
 

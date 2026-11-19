@@ -129,6 +129,27 @@ class PublishTests(ApiTestCase):
         self.assertEqual(ok.status_code, 200, ok.text)
         self.assertEqual(sorted(o["kind"] for o in self.objs().values()), ["adcreatives", "ads", "adsets"])   # no second ad set
 
+    def test_an_unusable_creative_from_an_earlier_attempt_is_replaced_once_and_the_ad_is_made(self):
+        self.client.post("/api/connections/meta/detect")
+        self.flags(fail_ads=True)                                                          # ad fails: ad set + creative are kept
+        first = self.client.post(f"/api/campaigns/{self.cid}/publish", json={})
+        self.assertEqual(first.status_code, 400)
+        self.assertIn("ad: ", first.json()["detail"])
+        old = [k for k, o in self.objs().items() if o["kind"] == "adcreatives"]
+        self.assertEqual(len(old), 1)
+        self.flags(fail_ads=False, bad_creatives=old)                                      # that creative is no longer usable
+        ok = self.client.post(f"/api/campaigns/{self.cid}/publish", json={})
+        self.assertEqual(ok.status_code, 200, ok.text)
+        kinds = sorted(o["kind"] for o in self.objs().values())
+        self.assertEqual(kinds, ["adcreatives", "adcreatives", "ads", "adsets"])            # one new creative, same ad set
+        self.assertNotEqual(ok.json()["state"]["creative_id"], old[0])
+
+    def test_a_creative_made_in_the_same_run_is_not_retried_in_a_loop(self):
+        self.client.post("/api/connections/meta/detect")
+        self.flags(fail_ads=True)
+        self.assertEqual(self.client.post(f"/api/campaigns/{self.cid}/publish", json={}).status_code, 400)
+        self.assertEqual(sorted(o["kind"] for o in self.objs().values()), ["adcreatives", "adsets"])   # no extra creative on a fresh run
+
     def test_whatsapp_destination_needs_the_page_linked_to_whatsapp(self):
         self.client.post("/api/connections/meta/detect")
         from app.db import session_scope

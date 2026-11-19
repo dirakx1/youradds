@@ -241,6 +241,8 @@ def build_app() -> FastAPI:
                         return meta_err("Invalid parameter: adset_id / creative", 100)
                     if objs[p["adset_id"]].get("kind") != "adsets" or json.loads(p["creative"]).get("creative_id") not in objs:
                         return meta_err("Invalid parameter: unknown ad set or creative", 100)
+                    if state.get("fail_ads") or json.loads(p["creative"]).get("creative_id") in state.get("bad_creatives", []):
+                        return meta_err("El creativo de este anuncio no es válido.", 100)
                     if p.get("status") != "PAUSED":
                         return meta_err("Invalid parameter: status must be PAUSED here", 100)
             except (ValueError, KeyError, TypeError):
