@@ -159,3 +159,4 @@ select,input,textarea{max-width:100%;min-width:0}
 @media (max-width:640px){.pub-actions>button{flex:1 1 100%}}
 .oauth{margin:8px 0 12px;padding:12px;border:1px solid var(--line);border-radius:12px;background:color-mix(in srgb,var(--acc) 6%,var(--card))}.oauth p{margin:0 0 8px}.oauth .row{margin:8px 0}
 .ready{margin:10px 0 0;padding:10px 12px;border:1px dashed var(--line);border-radius:12px}.ready summary{cursor:pointer;font-weight:600}.ready ul{list-style:none;margin:8px 0 0;padding:0}.ready li{margin:6px 0}
+.managed-banner{position:sticky;top:0;z-index:50;display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap;padding:8px 16px;background:var(--acc);color:#fff;font-weight:600}.managed-banner button{background:#fff;color:#000;border:0;border-radius:8px;padding:4px 12px;cursor:pointer}

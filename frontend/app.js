@@ -1,5 +1,5 @@
-import { auth } from './auth.js?v=brand-21';
-import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-21';
+import { auth } from './auth.js?v=brand-22';
+import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-22';
 
 const authPollers = new Set();
 
@@ -82,12 +82,16 @@ function prefillBrand(form) {
   if (b.palette && b.palette.length) addOpt('theme', 'brand:' + b.palette.join(','), t('My brand colors'));
 }
 
+function actingAs() { try { return JSON.parse(sessionStorage.getItem('actAs') || 'null'); } catch { return null; } }
+function setActingAs(v) { try { v ? sessionStorage.setItem('actAs', JSON.stringify(v)) : sessionStorage.removeItem('actAs'); } catch {} }
+
 async function api(path, opts = {}) {
   const token = await auth.token();
   if (!token && path !== '/auth/config') { showAuth(); throw new Error(t('Please sign in.')); }
   const headers = new Headers(opts.headers || {});
   if (!headers.has('Content-Type') && opts.body) headers.set('Content-Type', 'application/json');
   if (token) headers.set('Authorization', `Bearer ${token}`);
+  const actAs = actingAs(); if (actAs && path !== '/auth/config') headers.set('X-Act-As', String(actAs.id));
   const r = await fetch('/api' + path, {
     ...opts, headers,
     body: opts.body ? JSON.stringify(opts.body) : undefined,
@@ -777,6 +781,24 @@ const views = {
     loadStatus(false);
   },
 
+  async staff(el) {
+    const rows = await api('/staff/accounts');
+    el.innerHTML = `<h2>${t('Accounts managed by youradds')}</h2>
+      <p class="muted">${t('Open an account to work inside it. Everything you change there is recorded.')}</p>
+      <table>${rows.map(a => `<tr><td>${esc(a.email)}</td><td>${esc(a.name || '')}</td><td><button type="button" data-open="${a.id}" data-email="${esc(a.email)}">${t('Open')}</button> <button type="button" data-log="${a.id}">${t('Activity')}</button> <button type="button" data-end="${a.id}">${t('End management')}</button></td></tr>`).join('') || `<tr><td class="muted">${t('No managed accounts yet.')}</td></tr>`}</table>
+      <form id="addm" class="stack"><label>${t('Account number to manage')}<input name="id" type="number" min="1" required></label><button class="pri">${t('Set as managed')}</button></form>
+      <div id="log"></div>`;
+    el.onclick = async e => {
+      const b = e.target.closest('button'); if (!b) return;
+      try {
+        if (b.dataset.open) { await api(`/staff/accounts/${b.dataset.open}/open`, { method: 'POST' }); setActingAs({ id: +b.dataset.open }); location.hash = '#dashboard'; location.reload(); }
+        else if (b.dataset.log) { const log = await api('/staff/audit?account_id=' + b.dataset.log); $('#log', el).innerHTML = `<table>${log.map(r => `<tr><td>${esc(r.at)}</td><td>${esc(r.staff_email)}</td><td>${esc(r.action)}</td></tr>`).join('') || `<tr><td class="muted">${t('No activity yet.')}</td></tr>`}</table>`; }
+        else if (b.dataset.end && confirm(t('Return this account to self-managed?'))) { await api(`/staff/accounts/${b.dataset.end}/mode`, { method: 'POST', body: { mode: 'self' } }); views.staff(el); }
+      } catch (x) { alert(x.message); }
+    };
+    $('#addm', el).onsubmit = async e => { e.preventDefault(); try { await api(`/staff/accounts/${e.target.id.value}/mode`, { method: 'POST', body: { mode: 'managed' } }); views.staff(el); } catch (x) { alert(x.message); } };
+  },
+
   async profile(el) {
     const user = (await auth.init()).user;
     if (!user) throw new Error(t('Your session ended. Please sign in again.'));
@@ -980,9 +1002,18 @@ function showAuth() {
 
 async function boot() {
   let me;
-  try { await auth.init(); if (!await auth.token()) return showAuth(); me = await api('/auth/me'); }
+  try { await auth.init(); if (!await auth.token()) return showAuth(); me = await api('/auth/me').catch(async e => { if (!actingAs()) throw e; setActingAs(null); return api('/auth/me'); }); }
   catch (e) { showAuth(); return null; }
   window.__youradsMe = me;
+  document.querySelector('.managed-banner')?.remove();
+  if (me.acting_as) {
+    const bar = document.createElement('div'); bar.className = 'managed-banner';
+    bar.innerHTML = `<span>${t('Managed by youradds: you are working inside {who}\'s account. Your changes are recorded.', { who: esc(me.email) })}</span> <button type="button">${t('Exit')}</button>`;
+    bar.querySelector('button').onclick = () => { setActingAs(null); location.hash = '#staff'; location.reload(); };
+    document.body.prepend(bar);
+  } else if (me.is_staff && !document.querySelector('nav a[href="#staff"]')) {
+    primaryNav.insertAdjacentHTML('beforeend', `<a href="#staff">${t('Staff')}</a>`);
+  }
   try { currency = (await api('/health')).currency || currency; } catch {}
   try { const r = await api('/brand'); brandCache = r.brand && r.brand.completed ? r.brand : null; } catch {}
   if (appPath.startsWith('/sign-') || appPath === '/forgot-password') location.replace(L('/'));
@@ -1004,7 +1035,7 @@ async function enterAuthPage() {
 
 async function route() {
   let name = (location.hash.slice(1) || 'dashboard');
-  if (!brandCache && !['brand', 'connections', 'profile'].includes(name)) { name = 'brand'; history.replaceState(null, '', '#brand'); }   // first step for every account
+  if (!brandCache && !['brand', 'connections', 'profile', 'staff'].includes(name)) { name = 'brand'; history.replaceState(null, '', '#brand'); }   // first step for every account
   document.querySelectorAll('nav a').forEach(a => a.classList.toggle('on', a.hash === '#' + name));
   const el = $('#view'); el.onclick = null; el.innerHTML = '<p class="muted">Loading…</p>';
   try { await (views[name] || views.dashboard)(el); el.querySelectorAll('select[name=language]').forEach(sel => { if ([...sel.options].some(o => o.value === lang)) sel.value = lang; }); }

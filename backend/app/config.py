@@ -16,6 +16,11 @@ def env(name: str) -> str:
     return os.getenv(name, "")
 CREATIVES_DIR = Path(os.getenv("YOURADS_CREATIVES", str(Path(__file__).resolve().parents[1] / "data" / "creatives")))
 
+def staff_emails() -> set[str]:
+    """youradds staff (comma-separated verified emails in STAFF_EMAILS); read at call time."""
+    return {e.strip().lower() for e in os.getenv("STAFF_EMAILS", "").split(",") if e.strip()}
+
+
 ALLOW_SIGNUP = os.getenv("ALLOW_SIGNUP", "true").lower() not in ("0", "false", "no")
 CLERK_PUBLISHABLE_KEY = env("CLERK_PUBLISHABLE_KEY")
 CLERK_SECRET_KEY = env("CLERK_SECRET_KEY")

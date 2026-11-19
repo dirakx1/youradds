@@ -56,6 +56,17 @@ class ConnectionLink(Base):
     created_at: Mapped[str | None] = mapped_column(Text, server_default=UTC_NOW)
 
 
+class AuditLog(Base):
+    """What youradds staff did inside a managed customer's account: who, which account, what, when."""
+    __tablename__ = "audit_log"
+    __table_args__ = (Index("ix_audit_log_account_id", "account_id", "id"), {"schema": SCHEMA})
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=False), primary_key=True)
+    at: Mapped[str | None] = mapped_column(Text, server_default=UTC_NOW)
+    staff_email: Mapped[str] = mapped_column(Text, nullable=False)
+    account_id: Mapped[int] = mapped_column(BigInteger, ForeignKey(f"{SCHEMA}.users.id", ondelete="CASCADE"), nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 class Campaign(Base):
     __tablename__ = "campaigns"
     __table_args__ = (

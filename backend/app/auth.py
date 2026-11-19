@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 
 from . import config
 from .db import seed_demo, session_scope
-from .models import Campaign, User
+from .models import AuditLog, Campaign, User
 
 router = APIRouter(prefix="/api/auth")
 PUBLIC_AUTH_PATHS = ("/sign-in", "/sign-up", "/forgot-password", "/sso-callback", "/account")
@@ -113,9 +113,98 @@ def _resolve_user(clerk_user_id: str) -> dict:
         raise HTTPException(409, "account mapping conflict; explicit operator linking is required") from exc
 
 
+def real_user(request: Request) -> dict:
+    """The signed-in person, ignoring any act-as request."""
+    user = _resolve_user(verify_clerk_request(request)["sub"])
+    user["is_staff"] = user["email"].lower() in config.staff_emails()
+    return user
+
+
+def audit(staff: dict, account_id: int, action: str) -> None:
+    with session_scope() as session:
+        session.add(AuditLog(staff_email=staff["email"], account_id=account_id, action=action[:300]))
+
+
+# A client's own sign-in and Meta tokens are never touched by staff acting for them.
+ACT_AS_BLOCKED = ("/api/connections", "/api/oauth/")
+
+
 def current_user(request: Request) -> dict:
-    claims = verify_clerk_request(request)
-    return _resolve_user(claims["sub"])
+    user = real_user(request)
+    target = request.headers.get("x-act-as", "").strip()
+    if not target:
+        return user
+    if not user["is_staff"]:
+        raise HTTPException(403, "staff only")
+    try:
+        target_id = int(target)
+    except ValueError:
+        raise HTTPException(400, "invalid account") from None
+    with session_scope() as session:
+        row = session.execute(select(User.id, User.email, User.name, User.webhook_key, User.mode)
+                              .where(User.id == target_id)).mappings().one_or_none()
+    if not row or row["mode"] != "managed":
+        raise HTTPException(403, "that account is not managed by youradds")
+    method, path = request.method.upper(), request.url.path
+    if method != "GET" and path.startswith(ACT_AS_BLOCKED):
+        raise HTTPException(403, "connections are changed by the account owner, not by staff")
+    if method != "GET":
+        audit(user, target_id, f"{method} {path}")
+    acting = dict(row)
+    acting["is_staff"] = False
+    acting["acting_as"] = {"staff_email": user["email"]}
+    return acting
+
+
+def staff_user(request: Request) -> dict:
+    user = real_user(request)
+    if not user["is_staff"]:
+        raise HTTPException(403, "staff only")
+    return user
+
+
+staff_router = APIRouter(prefix="/api/staff")
+
+
+@staff_router.get("/accounts")
+def staff_accounts(user: dict = Depends(staff_user)):
+    with session_scope() as session:
+        rows = session.execute(select(User.id, User.email, User.name, User.mode)
+                               .where(User.mode == "managed").order_by(User.id)).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@staff_router.post("/accounts/{account_id}/mode")
+def staff_set_mode(account_id: int, body: dict, user: dict = Depends(staff_user)):
+    mode = (body or {}).get("mode")
+    if mode not in ("self", "managed"):
+        raise HTTPException(400, "mode must be self or managed")
+    with session_scope() as session:
+        account = session.get(User, account_id)
+        if not account:
+            raise HTTPException(404, "account not found")
+        account.mode = mode
+    audit(user, account_id, f"set mode {mode}")
+    return {"id": account_id, "mode": mode}
+
+
+@staff_router.post("/accounts/{account_id}/open")
+def staff_open(account_id: int, user: dict = Depends(staff_user)):
+    with session_scope() as session:
+        account = session.get(User, account_id)
+        if not account or account.mode != "managed":
+            raise HTTPException(403, "that account is not managed by youradds")
+        info = {"id": account.id, "email": account.email, "name": account.name}
+    audit(user, account_id, "opened the account")
+    return info
+
+
+@staff_router.get("/audit")
+def staff_audit(account_id: int, user: dict = Depends(staff_user)):
+    with session_scope() as session:
+        rows = session.execute(select(AuditLog.at, AuditLog.staff_email, AuditLog.action)
+                               .where(AuditLog.account_id == account_id).order_by(AuditLog.id.desc()).limit(200)).mappings().all()
+    return [dict(r) for r in rows]
 
 
 @router.get("/config")
@@ -131,4 +220,5 @@ def auth_config():
 
 @router.get("/me")
 def me(user: dict = Depends(current_user)):
-    return {"id": user["id"], "email": user["email"], "name": user["name"], "mode": user["mode"]}
+    return {"id": user["id"], "email": user["email"], "name": user["name"], "mode": user["mode"],
+            "is_staff": bool(user.get("is_staff")), "acting_as": user.get("acting_as")}

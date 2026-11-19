@@ -91,6 +91,15 @@ Not built yet / decisions:
 
 ### Phase 3: Managed mode
 
+Built so far (slice 1, 2026-11-19):
+
+- Staff are the verified emails listed in the server variable `STAFF_EMAILS` (comma-separated). A staff member marks a customer's account `managed` (`POST /api/staff/accounts/{id}/mode`), opens it (`/open`) and sends `X-Act-As: <account id>` on later requests; the server accepts it only for staff and only for managed accounts.
+- While acting, the client's connections and Meta login cannot be changed (403); every other change (anything that is not a GET) is written to `audit_log` (who, which account, what, when). Reads are not logged. `GET /api/staff/audit?account_id=` lists it.
+- UI: a "Staff" page (managed accounts, open, activity, end management, set as managed) and a banner "Managed by youradds" with an Exit button while acting.
+- Tests: `tests/test_managed.py`. Migration `0008_staff_audit_log`.
+
+Still to build: spend approval (client confirms before Activate), onboarding with partner sharing and a system user token, the managed-service terms, an email to the client when staff change something, and lookup of accounts by email.
+
 - Staff role that can open a customer's account, with a visible "managed by youradds" banner.
 - Audit log of every staff action (who, which account, what changed, when).
 - Spend approval: staff prepare campaigns paused; the client confirms before Activate unless they opted into staff activation. The publish pipeline already creates things paused.

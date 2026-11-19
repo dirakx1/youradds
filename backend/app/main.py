@@ -41,6 +41,7 @@ async def lifespan(app):
 
 app = FastAPI(title="youradds - open-source AI ads manager", lifespan=lifespan)
 app.include_router(auth.router)
+app.include_router(auth.staff_router)
 app.include_router(creds.router)
 app.include_router(oauth_meta.public)
 app.include_router(oauth_meta.router)
