@@ -126,7 +126,7 @@ def audit(staff: dict, account_id: int, action: str) -> None:
 
 
 # A client's own sign-in and Meta tokens are never touched by staff acting for them.
-ACT_AS_BLOCKED = ("/api/connections", "/api/oauth/")
+ACT_AS_BLOCKED = ("/api/connections", "/api/oauth/", "/api/approvals")
 
 
 def current_user(request: Request) -> dict:
@@ -141,13 +141,13 @@ def current_user(request: Request) -> dict:
     except ValueError:
         raise HTTPException(400, "invalid account") from None
     with session_scope() as session:
-        row = session.execute(select(User.id, User.email, User.name, User.webhook_key, User.mode)
+        row = session.execute(select(User.id, User.email, User.name, User.webhook_key, User.mode, User.staff_activation)
                               .where(User.id == target_id)).mappings().one_or_none()
     if not row or row["mode"] != "managed":
         raise HTTPException(403, "that account is not managed by youradds")
     method, path = request.method.upper(), request.url.path
     if method != "GET" and path.startswith(ACT_AS_BLOCKED):
-        raise HTTPException(403, "connections are changed by the account owner, not by staff")
+        raise HTTPException(403, "connections, approvals and permissions are changed by the account owner, not by staff")
     if method != "GET":
         audit(user, target_id, f"{method} {path}")
     acting = dict(row)

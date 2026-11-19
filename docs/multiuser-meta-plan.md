@@ -98,7 +98,9 @@ Built so far (slice 1, 2026-11-19):
 - UI: a "Staff" page (managed accounts, open, activity, end management, set as managed) and a banner "Managed by youradds" with an Exit button while acting.
 - Tests: `tests/test_managed.py`. Migration `0008_staff_audit_log`.
 
-Still to build: spend approval (client confirms before Activate), onboarding with partner sharing and a system user token, the managed-service terms, an email to the client when staff change something, and lookup of accounts by email.
+Slice 2 (2026-11-19), spend approval: when staff acting in a managed account press Activate or Resume, nothing is started; a request is queued (`approvals` table, one open request per campaign) and shown to the client on every page with Approve and Decline. Approving runs the same activation as the client pressing Activate. Pausing never needs approval. The client can tick "Let youradds staff start campaigns without asking me each time" on Connections (`users.staff_activation`, off by default); staff cannot change it or decide requests (403). Migration `0009_spend_approvals`; tests in `tests/test_managed.py` (`SpendApprovalTests`). Budget increases are not gated yet.
+
+Still to build: onboarding with partner sharing and a system user token, the managed-service terms, an email to the client when staff change something, and lookup of accounts by email.
 
 - Staff role that can open a customer's account, with a visible "managed by youradds" banner.
 - Audit log of every staff action (who, which account, what changed, when).

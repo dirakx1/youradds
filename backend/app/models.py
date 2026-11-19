@@ -1,5 +1,5 @@
 """SQLAlchemy mappings for the application-owned ``yourads`` schema."""
-from sqlalchemy import BigInteger, Double, ForeignKey, Identity, Index, Integer, Text, UniqueConstraint, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Double, ForeignKey, Identity, Index, Integer, Text, UniqueConstraint, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 SCHEMA = "yourads"
@@ -22,6 +22,7 @@ class User(Base):
     clerk_user_id: Mapped[str | None] = mapped_column(Text)
     webhook_key: Mapped[str] = mapped_column(Text, nullable=False)
     mode: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'self'"))   # 'self' or 'managed' (set by youradds staff)
+    staff_activation: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))   # client lets youradds staff activate campaigns
     created_at: Mapped[str | None] = mapped_column(Text, server_default=UTC_NOW)
 
 
@@ -65,6 +66,20 @@ class AuditLog(Base):
     staff_email: Mapped[str] = mapped_column(Text, nullable=False)
     account_id: Mapped[int] = mapped_column(BigInteger, ForeignKey(f"{SCHEMA}.users.id", ondelete="CASCADE"), nullable=False)
     action: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class Approval(Base):
+    """A staff request to start spending on a client's campaign; the client decides."""
+    __tablename__ = "approvals"
+    __table_args__ = (Index("ix_approvals_account_id", "account_id", "id"),
+                      CheckConstraint("status IN ('pending', 'approved', 'declined')", name="ck_approvals_status"), {"schema": SCHEMA})
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=False), primary_key=True)
+    account_id: Mapped[int] = mapped_column(BigInteger, ForeignKey(f"{SCHEMA}.users.id", ondelete="CASCADE"), nullable=False)
+    campaign_id: Mapped[int] = mapped_column(BigInteger, ForeignKey(f"{SCHEMA}.campaigns.id", ondelete="CASCADE"), nullable=False)
+    requested_by: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'pending'"))
+    requested_at: Mapped[str | None] = mapped_column(Text, server_default=UTC_NOW)
+    decided_at: Mapped[str | None] = mapped_column(Text)
 
 
 class Campaign(Base):

@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 
-from . import config, creds, fx
+from . import approvals, config, creds, fx
 from .auth import current_user
 from .creatives import CREATIVES_DIR
 from .db import session_scope
@@ -385,6 +385,9 @@ def activate(cid: int, user: dict = Depends(current_user)):
     state = _state(row)
     if not state.get("ad_id"):
         raise HTTPException(400, "Publish the ad to Meta first.")
+    waiting = approvals.gate(user, cid)             # staff need the client's approval to start spending
+    if waiting:
+        return waiting
     p = make_platform("meta", creds.get(user["id"], "meta"))
     try:
         activate_objects(p, state, row["external_id"])

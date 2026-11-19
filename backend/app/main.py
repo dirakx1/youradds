@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, update
 
-from . import ai, auth, brand, config, creds
+from . import ai, approvals, auth, brand, config, creds
 from .auth import current_user
 from .config import PLATFORMS, validate_clerk_config
 from .db import check_database_revision, dispose_engine, engine, session_scope
@@ -42,6 +42,7 @@ async def lifespan(app):
 app = FastAPI(title="youradds - open-source AI ads manager", lifespan=lifespan)
 app.include_router(auth.router)
 app.include_router(auth.staff_router)
+app.include_router(approvals.router)
 app.include_router(creds.router)
 app.include_router(oauth_meta.public)
 app.include_router(oauth_meta.router)
@@ -208,6 +209,10 @@ def create_campaign(body: CampaignIn, user: dict = Depends(current_user)):
 def set_status(cid: int, status: Literal["active", "paused"], user: dict = Depends(current_user)):
     with session_scope() as session:
         row = _own(session, cid, user["id"])
+    if status == "active":
+        waiting = approvals.gate(user, cid)         # staff need the client's approval to start spending
+        if waiting:
+            return waiting
     err = None
     if row["external_id"]:
         state = publish._state(row)

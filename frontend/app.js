@@ -1,5 +1,5 @@
-import { auth } from './auth.js?v=brand-22';
-import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-22';
+import { auth } from './auth.js?v=brand-23';
+import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-23';
 
 const authPollers = new Set();
 
@@ -209,7 +209,7 @@ function publishDialog(c, done) {
   $('[data-act=activate]', dlg).onclick = e => run(e.target, t('Activating…'), async () => {
     const m = current?.money || {};
     if (!confirm(t('Activate now? Meta will start spending up to {a} {ac} per day.', { a: Number(m.app_amount || 0).toLocaleString(locale), ac: m.app_currency || currency }))) return;
-    await api(`/campaigns/${c.id}/activate`, { method: 'POST' }); say(t('Active. It can take a few minutes to start delivering.')); done(); });
+    const r = await api(`/campaigns/${c.id}/activate`, { method: 'POST' }); say(r.approval ? t('Sent to the client for approval. It starts when they approve.') : t('Active. It can take a few minutes to start delivering.')); done(); });
 }
 
 async function creativesPanel(el, refresh) {
@@ -490,7 +490,7 @@ const views = {
     el.onclick = async e => {
       const b = e.target.closest('button'); if (!b) return;
       if (b.dataset.pub) return publishDialog(rows.find(r => String(r.id) === b.dataset.pub), () => views.campaigns(el));
-      if (b.dataset.t) await api(`/campaigns/${b.dataset.t}/status?status=${b.dataset.s}`, { method: 'POST' });
+      if (b.dataset.t) { const r = await api(`/campaigns/${b.dataset.t}/status?status=${b.dataset.s}`, { method: 'POST' }); if (r.approval) alert(t('Sent to the client for approval. It starts when they approve.')); }
       else if (b.dataset.d && confirm(t('Delete campaign?'))) await api('/campaigns/' + b.dataset.d, { method: 'DELETE' });
       else return;
       views.campaigns(el);
@@ -779,6 +779,13 @@ const views = {
       }
     }
     loadStatus(false);
+    if (window.__youradsMe?.mode === 'managed' && !window.__youradsMe?.acting_as) {
+      const st = await api('/approvals/settings').catch(() => null);
+      if (st) {
+        el.insertAdjacentHTML('beforeend', `<div class="card"><h3>${t('Managed by youradds')}</h3><p class="muted">${t('youradds prepares your campaigns paused. By default you approve each one before money is spent.')}</p><label><input type="checkbox" id="staffact"${st.staff_activation ? ' checked' : ''}> ${t('Let youradds staff start campaigns without asking me each time')}</label></div>`);
+        $('#staffact', el).onchange = async e => { try { await api('/approvals/settings', { method: 'PUT', body: { staff_activation: e.target.checked } }); } catch (x) { e.target.checked = !e.target.checked; alert(x.message); } };
+      }
+    }
   },
 
   async staff(el) {
@@ -1033,7 +1040,23 @@ async function enterAuthPage() {
   showAuth();
 }
 
+async function loadApprovals() {
+  let box = $('#approvals');
+  if (!box) { box = document.createElement('div'); box.id = 'approvals'; $('#view').before(box); }
+  const list = await api('/approvals').catch(() => []);
+  const acting = !!window.__youradsMe?.acting_as;
+  box.innerHTML = list.length ? `<div class="approvals">${list.map(a => `<p><b>${esc(a.name)}</b> · ${money(a.daily_budget)}/${t('day')} — ${acting ? t('Waiting for the client to approve.') : t('youradds wants to start this campaign and spend up to its daily budget.')}${acting ? '' : ` <button type="button" class="pri" data-ap="approve" data-id="${a.id}">${t('Approve')}</button> <button type="button" data-ap="decline" data-id="${a.id}">${t('Decline')}</button>`}</p>`).join('')}</div>` : '';
+  box.onclick = async e => {
+    const b = e.target.closest('[data-ap]'); if (!b) return;
+    if (b.dataset.ap === 'approve' && !confirm(t('Approve? Meta will start spending on this campaign.'))) return;
+    b.disabled = true;
+    try { const r = await api(`/approvals/${b.dataset.id}/${b.dataset.ap}`, { method: 'POST' }); if (r.sync_error) alert(r.sync_error); } catch (x) { alert(x.message); }
+    route();
+  };
+}
+
 async function route() {
+  loadApprovals();
   let name = (location.hash.slice(1) || 'dashboard');
   if (!brandCache && !['brand', 'connections', 'profile', 'staff'].includes(name)) { name = 'brand'; history.replaceState(null, '', '#brand'); }   // first step for every account
   document.querySelectorAll('nav a').forEach(a => a.classList.toggle('on', a.hash === '#' + name));
