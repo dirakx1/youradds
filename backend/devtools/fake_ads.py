@@ -119,6 +119,17 @@ def build_app() -> FastAPI:
 
     @app.api_route("/meta/{version}/{path:path}", methods=["GET", "POST"])
     async def meta(version: str, path: str, request: Request):
+        if path == "oauth/access_token":                     # OAuth code exchange (no access_token parameter by design)
+            q = dict(request.query_params)
+            if q.get("client_id") != "APP1" or q.get("client_secret") != "SECRET1":
+                return meta_err("Error validating client secret.", 1)
+            if q.get("grant_type") == "fb_exchange_token":
+                return {"access_token": "LONG-" + q["fb_exchange_token"], "token_type": "bearer", "expires_in": 5183944}
+            if not q.get("code") or q["code"].startswith("bad"):
+                return meta_err("This authorization code has been used or is invalid.", 100)
+            if not q.get("redirect_uri"):
+                return meta_err("redirect_uri is required", 100)
+            return {"access_token": "SHORT-" + q["code"], "token_type": "bearer", "expires_in": 3600}
         m = re.fullmatch(r"(\d+)/messages", path)           # WhatsApp Cloud API send (JSON body, bearer token)
         if m and request.method == "POST":
             auth = request.headers.get("authorization", "").removeprefix("Bearer ")
@@ -141,6 +152,21 @@ def build_app() -> FastAPI:
         if (bad := meta_auth(p)):
             return bad
         camps = state["meta"]
+        if path == "me/adaccounts" and request.method == "GET":     # token containing ONE -> a single account
+            rows = [{"account_id": "1001", "name": "Café La Montaña", "currency": "COP", "account_status": 1, "id": "act_1001"}]
+            if "ONE" not in p["access_token"]:
+                rows.append({"account_id": "1002", "name": "Old account", "currency": "USD", "account_status": 2, "id": "act_1002"})
+            return {"data": rows}
+        if path == "me" and request.method == "GET":                 # who the Facebook login is: derived from the code
+            return {"id": "fbuser-" + p["access_token"].split("-")[-1], "name": "Fake Owner"}
+        if path == "me/permissions" and request.method == "GET":
+            return {"data": [{"permission": x, "status": "granted"} for x in ("ads_management", "ads_read", "pages_show_list")]
+                    + [{"permission": "instagram_basic", "status": "declined"}]}
+        if path == "me/accounts" and request.method == "GET" and "SHORT" in p["access_token"]:     # tokens made by the login flow
+            rows = [{"id": "5001", "name": "Café La Montaña", "instagram_business_account": {"id": "17841"}}]
+            if "TWOPAGES" in p["access_token"]:
+                rows.append({"id": "5002", "name": "Second page"})
+            return {"data": rows}
         m = re.fullmatch(r"(act_\d+)/insights", path)
         if m and request.method == "GET":
             return meta_insights(m.group(1), p, str(request.url.replace(query="")), request)

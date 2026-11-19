@@ -142,6 +142,60 @@ class ApiDatabaseTests(ApiTestCase):
         self.assertTrue(any(r["spend"] > 0 for r in week))
         self.assertEqual(self.client.post("/api/connections/tiktok/sync-metrics").status_code, 400)
 
+    def test_facebook_login_connects_meta_without_pasting_tokens(self):
+        import os
+        from unittest.mock import patch
+        from urllib.parse import parse_qs, urlparse
+        from devtools.fake_ads import env_for, serve_in_thread
+        from app import creds
+        base, stop = serve_in_thread()
+        self.addCleanup(stop)
+        uid = self.user_ids["user_one"]
+        anon = {"Authorization": ""}
+        with patch.dict(os.environ, {**env_for(base), "META_APP_ID": "", "META_APP_SECRET": ""}):
+            self.assertFalse(self.client.get("/api/oauth/meta/state").json()["enabled"])
+            self.assertEqual(self.client.post("/api/oauth/meta/start").status_code, 400)          # not configured: feature off
+        with patch.dict(os.environ, {**env_for(base), "META_APP_ID": "APP1", "META_APP_SECRET": "SECRET1",
+                                     "PUBLIC_BASE_URL": "https://example.test"}):
+            self.assertTrue(self.client.get("/api/oauth/meta/state").json()["enabled"])
+            url = self.client.post("/api/oauth/meta/start").json()["url"]
+            q = parse_qs(urlparse(url).query)
+            self.assertEqual((q["client_id"], q["redirect_uri"]), (["APP1"], ["https://example.test/api/oauth/meta/callback"]))
+            self.assertIn("ads_management", q["scope"][0])
+            state = q["state"][0]
+            def cb(**kw):
+                return self.client.get("/api/oauth/meta/callback", params=kw, headers=anon, follow_redirects=False)
+            # one ad account + one page: connected straight away, public callback (no session header)
+            r = cb(code="ONE1", state=state)
+            self.assertEqual((r.status_code, r.headers["location"]), (303, "/es/?meta=connected#connections"))
+            st = self.client.get("/api/oauth/meta/state").json()
+            self.assertEqual((st["oauth"], st["needs_pick"], st["ad_account_id"], st["ad_account_name"], st["page_id"]),
+                             (True, False, "act_1001", "Café La Montaña", "5001"))
+            self.assertIn(st["expires_in_days"], (59, 60))
+            saved = creds.get(uid, "meta")
+            self.assertEqual((saved["access_token"], saved["instagram_account_id"]), ("LONG-SHORT-ONE1", "17841"))
+            self.assertTrue(next(c for c in self.client.get("/api/connections").json() if c["service"] == "meta")["connected"])
+            self.assertNotIn("LONG-SHORT", self.client.get("/api/connections").text)               # secret never sent back
+            # two ad accounts: the owner picks
+            cb(code="MANY2", state=state)
+            st = self.client.get("/api/oauth/meta/state").json()
+            self.assertEqual((st["has_token"], st["needs_pick"]), (True, True))
+            self.assertFalse(next(c for c in self.client.get("/api/connections").json() if c["service"] == "meta")["connected"])
+            listed = self.client.get("/api/oauth/meta/accounts").json()
+            self.assertEqual([a["id"] for a in listed["ad_accounts"]], ["act_1001", "act_1002"])
+            self.assertEqual(self.client.post("/api/oauth/meta/select", json={"ad_account_id": "act_999"}).status_code, 400)
+            self.assertEqual(self.client.post("/api/oauth/meta/select", json={"ad_account_id": "act_1001", "page_id": "nope"}).status_code, 400)
+            self.assertEqual(self.client.post("/api/oauth/meta/select", json={"ad_account_id": "act_1001", "page_id": "5001"}).status_code, 200)
+            self.assertFalse(self.client.get("/api/oauth/meta/state").json()["needs_pick"])
+            # failures end back on the page with a flag and never store anything new
+            self.assertEqual(cb(error="access_denied", state=state).headers["location"], "/es/?meta=denied#connections")
+            self.assertEqual(cb(code="x", state="garbage").headers["location"], "/es/?meta=invalid#connections")
+            self.assertEqual(cb(code="bad1", state=state).headers["location"], "/es/?meta=failed#connections")
+            self.assertEqual(creds.get(uid, "meta")["access_token"], "LONG-SHORT-MANY2")
+            # a hand-pasted token takes over from the Facebook login
+            self.client.put("/api/connections/meta", json={"values": {"access_token": "pasted"}})
+            self.assertFalse(self.client.get("/api/oauth/meta/state").json()["oauth"])
+
     def test_credentials_mask_settings_and_whatsapp_attribution(self):
         from app import whatsapp
         user_id = self.user_ids["user_one"]

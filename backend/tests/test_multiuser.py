@@ -68,3 +68,77 @@ class MultiUserTests(ApiTestCase):
             owner = c.execute(text("SELECT user_id FROM yourads.connection_links WHERE external_id='900'")).scalar_one()
         self.assertEqual(owner, self.user_ids["user_one"])
         self.assertEqual(creds.backfill_links(), 1)                       # safe to repeat
+
+
+class FacebookConnectTests(ApiTestCase):
+    """Phase 2: the Facebook login stores who connected, enforces one owner, and honours Meta's removal callbacks."""
+    def setUp(self):
+        import os
+        from unittest.mock import patch
+        from devtools.fake_ads import env_for, serve_in_thread
+        super().setUp()
+        base, stop = serve_in_thread()
+        self.addCleanup(stop)
+        env = patch.dict(os.environ, {**env_for(base), "META_APP_ID": "APP1", "META_APP_SECRET": "SECRET1",
+                                      "PUBLIC_BASE_URL": "https://example.test"})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def login(self, code, subject="user_one"):
+        from urllib.parse import parse_qs, urlparse
+        self.use(subject)
+        state = parse_qs(urlparse(self.client.post("/api/oauth/meta/start").json()["url"]).query)["state"][0]
+        r = self.client.get("/api/oauth/meta/callback", params={"code": code, "state": state},
+                            headers={"Authorization": ""}, follow_redirects=False)
+        return r.headers["location"]
+
+    def signed(self, user_id, secret="SECRET1"):
+        import base64, hashlib, hmac
+        payload = base64.urlsafe_b64encode(json.dumps({"user_id": user_id, "algorithm": "HMAC-SHA256"}).encode()).decode().rstrip("=")
+        sig = base64.urlsafe_b64encode(hmac.new(secret.encode(), payload.encode(), hashlib.sha256).digest()).decode().rstrip("=")
+        return f"{sig}.{payload}"
+
+    def test_the_login_stores_who_connected_and_what_they_allowed(self):
+        from app import creds
+        self.assertTrue(self.login("ONE1").endswith("meta=connected#connections"))
+        saved = creds.get(self.user_ids["user_one"], "meta")
+        self.assertEqual((saved["meta_user_id"], saved["meta_user_name"]), ("fbuser-ONE1", "Fake Owner"))
+        self.assertEqual(saved["scopes"], "ads_management,ads_read,pages_show_list")      # only what was granted
+        state = self.client.get("/api/oauth/meta/state").json()
+        self.assertEqual(state["scopes"], ["ads_management", "ads_read", "pages_show_list"])
+        with self.engine.connect() as c:
+            row = c.execute(text("SELECT source, expires_at FROM yourads.credentials WHERE service='meta'")).one()
+        self.assertEqual(row[0], "oauth")
+        self.assertTrue(row[1])
+
+    def test_a_facebook_login_or_ad_account_already_used_elsewhere_is_refused(self):
+        from app import creds
+        self.assertTrue(self.login("ONE1").endswith("meta=connected#connections"))
+        self.assertTrue(self.login("ONE1", "user_two").endswith("meta=taken#connections"))        # same Facebook person
+        self.assertFalse(creds.get(self.user_ids["user_two"], "meta").get("access_token"))
+        self.assertTrue(self.login("ONE2", "user_two").endswith("meta=taken#connections"))        # other person, same ad account
+        kept = creds.get(self.user_ids["user_two"], "meta")
+        self.assertEqual((bool(kept.get("access_token")), kept.get("ad_account_id")), (True, None))   # login kept, picker decides
+        picked = self.client.post("/api/oauth/meta/select", json={"ad_account_id": "act_1001"})
+        self.assertEqual(picked.status_code, 409)
+
+    def test_meta_removal_callbacks_need_a_valid_signature_and_delete_the_connection(self):
+        from app import creds
+        self.login("ONE1")
+        uid = self.user_ids["user_one"]
+        hdr = {"Authorization": "", "Content-Type": "application/x-www-form-urlencoded"}
+        for bad in (self.signed("fbuser-ONE1", secret="WRONG"), "garbage", ""):
+            r = self.client.post("/api/oauth/meta/deauthorize", content=f"signed_request={bad}", headers=hdr)
+            self.assertEqual(r.status_code, 400)
+        self.assertTrue(creds.get(uid, "meta").get("access_token"))
+        r = self.client.post("/api/oauth/meta/data-deletion", content=f"signed_request={self.signed('fbuser-ONE1')}", headers=hdr)
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.json()["url"].startswith("https://example.test/api/oauth/meta/deletion-status?code="))
+        self.assertEqual(creds.get(uid, "meta"), {})
+        with self.engine.connect() as c:
+            self.assertEqual(c.execute(text("SELECT count(*) FROM yourads.connection_links")).scalar_one(), 0)
+        self.assertEqual(self.client.get(r.json()["url"].replace("https://example.test", ""), headers={"Authorization": ""}).status_code, 200)
+        self.login("ONE1")                                                                       # reconnecting later works
+        r = self.client.post("/api/oauth/meta/deauthorize", content=f"signed_request={self.signed('fbuser-ONE1')}", headers=hdr)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(creds.get(uid, "meta"), {})

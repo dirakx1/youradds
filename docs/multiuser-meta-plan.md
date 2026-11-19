@@ -69,15 +69,25 @@ Still to do in Phase 1:
 - Confirm the production data has no ad account shared by two accounts before deploying (the backfill logs conflicts and keeps the first).
 - Decide whether sign-up should stay open (`ALLOW_SIGNUP`) or be invite-only until App Review is done.
 
-### Phase 2: Self-managed Meta connect
+### Phase 2: Self-managed Meta connect (built 2026-11-18, needs the new app's App ID and App Secret to go live)
 
-- `/connect/meta` redirect with a CSRF `state`; callback exchanges code for a long-lived token and stores it encrypted.
-- Account chooser (ad account, Page, Instagram, WhatsApp); reuse `detect` and `use-page` with the user's own token.
-- Import existing Meta campaigns (reuse `list_campaigns` and `insights`), match by `external_id`, mark as imported, never duplicate.
-- Reconnect UX when a token expires; per-connection health check (already exists).
-- Deauthorize and data-deletion callbacks (Meta requires both).
-- Per-ad-account rate-limit handling.
-- Starting point: the parked Phase 3 OAuth work in `stash@{0}`.
+Built (module `backend/app/oauth_meta.py`, the parked work from `stash@{0}` brought up to date):
+
+- `POST /api/oauth/meta/start` returns the Facebook login URL (encrypted, 10-minute, per-user `state`); `GET /api/oauth/meta/callback` swaps the code for a long-lived token, records who connected (`meta_user_id`, name) and the permissions actually granted, stores the token encrypted with `source=oauth` and `expires_at`, and selects the ad account straight away when there is only one.
+- Account chooser (`/accounts`, `/select`) for several ad accounts and Pages, with the Instagram account taken from the chosen Page.
+- One owner rule: a Facebook person or ad account already connected to another youradds account is refused (`?meta=taken`, 409 in the chooser).
+- Meta's compliance callbacks, verified with the app secret: `POST /api/oauth/meta/deauthorize` and `POST /api/oauth/meta/data-deletion` (delete the saved Meta connection and ownership links of that Facebook user; imported campaign history is left untouched) plus `GET /api/oauth/meta/deletion-status`.
+- UI on the Connections page: "Connect with Facebook" button, connected state with expiry countdown and "Reconnect", "Change account", the manual token form kept under "Advanced".
+- Permissions requested: `ads_management, ads_read, business_management, pages_show_list, pages_read_engagement, pages_manage_ads, instagram_basic`.
+- Tests: `tests/test_multiuser.py` (`FacebookConnectTests`) and the OAuth test in `tests/test_api_database.py`, all against the local fake Meta.
+
+To switch it on (owner): set `META_APP_ID`, `META_APP_SECRET` and `PUBLIC_BASE_URL=https://youradds.co` in the server environment (secrets file, never in chat or git); in the Meta app add the redirect URI `https://youradds.co/api/oauth/meta/callback`, the Deauthorize callback URL and the Data deletion request URL listed in `backend/.env.example`. Until the env vars are set the feature is off and only the manual token form shows.
+
+Not built yet / decisions:
+
+- Facebook Login for Business (a `config_id` configuration) instead of plain Facebook Login with scopes; decide when the Meta app screens are in front of us.
+- Automatic expiry warning outside the Connections page (email or dashboard banner).
+- Import of existing Meta campaigns already exists (`Test & import campaigns`); add an automatic first import after connecting.
 
 ### Phase 3: Managed mode
 

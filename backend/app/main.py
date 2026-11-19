@@ -15,7 +15,7 @@ from .config import PLATFORMS, validate_clerk_config
 from .db import check_database_revision, dispose_engine, engine, session_scope
 from .models import Campaign, Metric
 from .platforms import make as make_platform
-from . import whatsapp, creatives, videos, cutout, pages, goals, insights, publish
+from . import whatsapp, creatives, videos, cutout, pages, goals, insights, publish, oauth_meta
 
 
 @asynccontextmanager
@@ -42,6 +42,8 @@ async def lifespan(app):
 app = FastAPI(title="youradds - open-source AI ads manager", lifespan=lifespan)
 app.include_router(auth.router)
 app.include_router(creds.router)
+app.include_router(oauth_meta.public)
+app.include_router(oauth_meta.router)
 app.include_router(brand.router)
 app.include_router(whatsapp.hook)
 app.include_router(whatsapp.router)

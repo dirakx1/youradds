@@ -1,5 +1,5 @@
-import { auth } from './auth.js?v=brand-16';
-import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-16';
+import { auth } from './auth.js?v=brand-17';
+import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-17';
 
 const authPollers = new Set();
 
@@ -651,18 +651,23 @@ const views = {
 
   async connections(el) {
     const cs = await api('/connections');
+    const oa = await api('/oauth/meta/state').catch(() => ({ enabled: false }));    // Facebook login is optional (needs a Meta app)
+    const advOn = c => c.service === 'meta' && oa.enabled;
     const hint = { meta: 'Also used for Instagram placements.', whatsapp: 'In Meta\'s WhatsApp webhook settings, set the callback URL and verify token shown below, and subscribe to "messages".' };
     el.innerHTML = `<h2>Connections</h2>
       <p class="muted">${t('These credentials belong to <b>your account only</b>. They are stored encrypted and never shown again after saving - leave a secret blank to keep it.')}</p>
       ${cs.map(c => `<form class="card conn" data-s="${c.service}"${c.connected ? ' data-has="1"' : ''}>
         <h3 style="margin-top:0">${esc(c.title)} <span class="conn-status muted" data-status>${c.connected ? '● checking…' : '● not connected'}</span></h3>
+        ${advOn(c) ? '<div class="oauth" data-oauth></div>' : ''}
         ${hint[c.service] ? `<p class="muted">${hint[c.service]}</p>` : ''}
+        ${advOn(c) ? `<details class="adv"><summary>${t('Advanced: paste a token manually')}</summary>` : ''}
         ${c.service === 'meta' ? `<p><a href="/${document.documentElement.lang === 'en' ? 'en' : 'es'}/meta-token/" target="_blank" rel="noopener">${esc(t('How do I get my access token? Step-by-step guide'))}</a></p>` : ''}
         ${c.webhook_path ? `<p>Callback URL: <code>${esc(location.origin + c.webhook_path)}</code></p>` : ''}
         <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">${c.fields.map(f => `<label>${esc(t(f.label))}${f.required ? ' *' : ''}
           <input name="${f.name}" type="${f.secret ? 'password' : 'text'}" autocomplete="off" value="${esc(f.value)}"
             placeholder="${f.secret && f.set ? esc(f.masked) + esc(t(' (saved)')) : esc(t(f.hint || ''))}"></label>`).join('')}</div>
         <button class="pri" type="submit">Save</button>
+        ${advOn(c) ? '</details>' : ''}
         ${['meta', 'tiktok', 'google'].includes(c.service) && c.connected ? `<button type="button" data-import="${c.service}">Test &amp; import campaigns</button>` : ''}
         ${c.service === 'meta' && c.connected ? `<button type="button" data-sync="meta">${t('Sync results')}</button> <button type="button" data-detect>${t('Detect my Page and Instagram')}</button>` : ''}
         ${c.connected && !c.shared ? '<button type="button" data-clear>Disconnect</button>' : ''}
@@ -722,6 +727,42 @@ const views = {
       };
       if (clr) clr.onclick = async () => { if (confirm(t('Remove the saved {svc} credentials?', { svc }))) { await api('/connections/' + svc, { method: 'DELETE' }); views.connections(el); } };
     });
+    const metaBox = oa.enabled && $('form[data-s=meta] [data-oauth]', el);
+    if (metaBox) {
+      const flags = { denied: 'You cancelled the access on Facebook.', invalid: 'The sign-in link expired. Please try again.', failed: 'We could not finish connecting with Facebook. Please try again.', connected: 'Connected with Facebook.', taken: 'That Facebook account or ad account is already connected to another youradds account. Disconnect it there first, or contact contact@youradds.co.' };
+      const flag = new URLSearchParams(location.search).get('meta');
+      if (flag) history.replaceState(null, '', location.pathname + location.hash);
+      const connect = async b => { b.disabled = true; try { location.href = (await api('/oauth/meta/start', { method: 'POST' })).url; } catch (x) { b.disabled = false; alert(x.message); } };
+      const connectBtn = label => `<button type="button" class="pri" data-fb>${label}</button>`;
+      const picker = async () => {
+        metaBox.innerHTML = `<p class="muted">${t('Loading…')}</p>`;
+        let r; try { r = await api('/oauth/meta/accounts'); } catch (x) { metaBox.innerHTML = `<p class="toast">${esc(x.message)}</p>${connectBtn(t('Reconnect with Facebook'))}`; $('[data-fb]', metaBox).onclick = e => connect(e.target); return; }
+        const sel = r.selected;
+        metaBox.innerHTML = `<p><b>${t('Choose what youradds should manage')}</b></p>
+          <div class="row"><label>${t('Ad account')}<select name="ad_account_id">${r.ad_accounts.map(a => `<option value="${esc(a.id)}"${a.id === sel.ad_account_id ? ' selected' : ''}${a.active ? '' : ' disabled'}>${esc(a.name)} · ${esc(a.currency)}${a.active ? '' : ' (' + esc(t('inactive')) + ')'}</option>`).join('')}</select></label>
+          <label>${t('Facebook page (optional)')}<select name="page_id"><option value="">${t('None')}</option>${r.pages.map(p => `<option value="${esc(p.id)}"${p.id === sel.page_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
+          <button type="button" class="pri" data-pick>${t('Save selection')}</button></div>
+          ${r.ad_accounts.some(a => a.active) ? '' : `<p class="toast">${t('No active ad accounts were found for this Facebook login.')}</p>`}`;
+        $('[data-pick]', metaBox).onclick = async e => {
+          e.target.disabled = true;
+          try { await api('/oauth/meta/select', { method: 'POST', body: { ad_account_id: $('[name=ad_account_id]', metaBox).value, page_id: $('[name=page_id]', metaBox).value } }); views.connections(el); }
+          catch (x) { e.target.disabled = false; alert(x.message); }
+        };
+      };
+      const note = flag ? `<p class="${flag === 'connected' ? 'st-active' : 'toast'}">${esc(t(flags[flag] || ''))}</p>` : '';
+      if (oa.has_token && oa.oauth && oa.needs_pick) picker();
+      else if (oa.has_token && oa.oauth) {
+        const soon = oa.expires_in_days != null && oa.expires_in_days <= 7;
+        metaBox.innerHTML = `${note}<p>✅ ${t('Connected with Facebook')} · <b>${esc(oa.ad_account_name || oa.ad_account_id)}</b>${oa.expires_in_days != null ? ` · <span class="${soon ? 'st-warn' : 'muted'}">${t('expires in {n} day(s)', { n: Math.max(oa.expires_in_days, 0) })}</span>` : ''}</p>
+          ${soon ? `<p class="st-warn">${t('Your Facebook connection expires soon. Reconnect to keep your data flowing.')}</p>` : ''}
+          <button type="button" data-change>${t('Change account')}</button> <button type="button"${soon ? ' class="pri"' : ''} data-fb>${t('Reconnect with Facebook')}</button>`;
+        $('[data-change]', metaBox).onclick = picker;
+        $('[data-fb]', metaBox).onclick = e => connect(e.target);
+      } else {
+        metaBox.innerHTML = `${note}<p>${t('Connect your account in one click. You do not need to copy any token.')}</p>${connectBtn(t('Connect with Facebook'))}`;
+        $('[data-fb]', metaBox).onclick = e => connect(e.target);
+      }
+    }
     loadStatus(false);
   },
 

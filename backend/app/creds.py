@@ -22,18 +22,19 @@ from .models import ConnectionLink, Credential
 
 log = logging.getLogger(__name__)
 
-# (service, kind, credential field): the external account that may belong to only one youradds account
-LINKED = {"meta": ("ad_account", "ad_account_id"), "tiktok": ("advertiser", "advertiser_id"), "google": ("customer", "customer_id")}
+# service -> [(kind, credential field)]: external accounts that may belong to only one youradds account
+LINKED = {"meta": [("user", "meta_user_id"), ("ad_account", "ad_account_id")],
+          "tiktok": [("advertiser", "advertiser_id")], "google": [("customer", "customer_id")]}
 
 
 class AlreadyConnected(Exception):
     pass
 
 
-def _external_id(service: str, values: dict) -> str:
-    kind = LINKED.get(service)
-    raw = (values.get(kind[1]) if kind else "") or ""
-    return "".join(ch for ch in raw if ch.isalnum()).lower().removeprefix("act") if service == "meta" else "".join(ch for ch in raw if ch.isalnum())
+def _external_id(service: str, field: str, values: dict) -> str:
+    raw = "".join(ch for ch in (values.get(field) or "") if ch.isalnum())
+    return raw.lower().removeprefix("act") if field == "ad_account_id" else raw
+
 
 # service -> ordered fields. secret=True values are masked in API responses. required = needed to be "connected".
 SERVICES = {
@@ -96,20 +97,18 @@ def get(user_id: int, service: str) -> dict:
 
 
 def _claim(session, user_id: int, service: str, values: dict):
-    """Record that this account owns the external account in `values`, or raise AlreadyConnected if another one does."""
-    if service not in LINKED:
-        return
-    kind, _ = LINKED[service]
-    external = _external_id(service, values)
-    session.execute(delete(ConnectionLink).where(ConnectionLink.user_id == user_id, ConnectionLink.service == service,
-                                                 ConnectionLink.kind == kind))
-    if not external:
-        return
-    owner = session.scalar(select(ConnectionLink.user_id).where(ConnectionLink.service == service, ConnectionLink.kind == kind,
-                                                                ConnectionLink.external_id == external))
-    if owner is not None and owner != user_id:
-        raise AlreadyConnected()
-    session.add(ConnectionLink(user_id=user_id, service=service, kind=kind, external_id=external))
+    """Record that this account owns the external accounts in `values`, or raise AlreadyConnected if another one does."""
+    for kind, field in LINKED.get(service, []):
+        external = _external_id(service, field, values)
+        session.execute(delete(ConnectionLink).where(ConnectionLink.user_id == user_id, ConnectionLink.service == service,
+                                                     ConnectionLink.kind == kind))
+        if not external:
+            continue
+        owner = session.scalar(select(ConnectionLink.user_id).where(
+            ConnectionLink.service == service, ConnectionLink.kind == kind, ConnectionLink.external_id == external))
+        if owner is not None and owner != user_id:
+            raise AlreadyConnected(kind)
+        session.add(ConnectionLink(user_id=user_id, service=service, kind=kind, external_id=external))
 
 
 def backfill_links() -> int:
@@ -141,9 +140,11 @@ def _save(user_id: int, service: str, values: dict):
             return
         _claim(session, user_id, service, values)
         enc = _fernet().encrypt(json.dumps(values).encode()).decode()
-        stmt = insert(Credential).values(user_id=user_id, service=service, data=enc)
+        source = "oauth" if values.get("oauth") == "1" else "manual"
+        stmt = insert(Credential).values(user_id=user_id, service=service, data=enc, source=source,
+                                         expires_at=values.get("expires_at") or None)
         session.execute(stmt.on_conflict_do_update(index_elements=[Credential.user_id, Credential.service],
-                          set_={"data": stmt.excluded.data,
+                          set_={"data": stmt.excluded.data, "source": stmt.excluded.source, "expires_at": stmt.excluded.expires_at,
                                 "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")}))
 
 
@@ -234,6 +235,9 @@ def save(service: str, body: ConnIn, user: dict = Depends(current_user)):
         for field in ("page_id", "instagram_account_id"):
             if cur.get(field) and not cur[field].isdigit():
                 raise HTTPException(400, "The Page and Instagram IDs are numbers (not links). Use the 'Detect my Page and Instagram' button.")
+    if service == "meta" and body.values.get("access_token", "").strip():
+        for k in ("oauth", "expires_at", "meta_user_id", "scopes"):      # a hand-pasted token replaces the Facebook login
+            cur.pop(k, None)
     if service == "higgsfield" and cur.get("api_key") and ":" not in cur["api_key"]:
         raise HTTPException(400, "Higgsfield key must look like ID:SECRET")
     if service == "whatsapp" and cur.get("phone_id") and not cur.get("verify_token"):
