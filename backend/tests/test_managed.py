@@ -40,6 +40,16 @@ class ManagedModeTests(ManagedBase):
         self.manage()
         self.assertEqual([a["id"] for a in self.client.get("/api/staff/accounts").json()], [self.customer])
 
+    def test_staff_find_accounts_by_email(self):
+        self.use("user_two")
+        self.assertEqual(self.client.get("/api/staff/lookup", params={"email": "one"}).status_code, 403)
+        self.use("user_one")
+        self.assertEqual(self.client.get("/api/staff/lookup", params={"email": "tw"}).status_code, 400)
+        found = self.client.get("/api/staff/lookup", params={"email": "TWO@Example"}).json()
+        self.assertEqual([(a["id"], a["email"], a["mode"]) for a in found], [(self.customer, "two@example.test", "self")])
+        self.assertEqual(len(self.client.get("/api/staff/lookup", params={"email": "@example.test"}).json()), 2)
+        self.assertEqual(self.client.get("/api/staff/lookup", params={"email": "%%%"}).json(), [])        # wildcards are literal
+
     def test_act_as_needs_staff_and_a_managed_account(self):
         self.use("user_two")
         self.act(self.user_ids["user_one"])

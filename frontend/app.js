@@ -1,5 +1,5 @@
-import { auth } from './auth.js?v=brand-23';
-import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-23';
+import { auth } from './auth.js?v=brand-24';
+import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-24';
 
 const authPollers = new Set();
 
@@ -793,7 +793,8 @@ const views = {
     el.innerHTML = `<h2>${t('Accounts managed by youradds')}</h2>
       <p class="muted">${t('Open an account to work inside it. Everything you change there is recorded.')}</p>
       <table>${rows.map(a => `<tr><td>${esc(a.email)}</td><td>${esc(a.name || '')}</td><td><button type="button" data-open="${a.id}" data-email="${esc(a.email)}">${t('Open')}</button> <button type="button" data-log="${a.id}">${t('Activity')}</button> <button type="button" data-end="${a.id}">${t('End management')}</button></td></tr>`).join('') || `<tr><td class="muted">${t('No managed accounts yet.')}</td></tr>`}</table>
-      <form id="addm" class="stack"><label>${t('Account number to manage')}<input name="id" type="number" min="1" required></label><button class="pri">${t('Set as managed')}</button></form>
+      <form id="addm" class="stack"><label>${t('Find an account by email')}<input name="q" type="search" minlength="3" placeholder="name@example.com" required></label><button class="pri">${t('Search')}</button></form>
+      <div id="found"></div>
       <div id="log"></div>`;
     el.onclick = async e => {
       const b = e.target.closest('button'); if (!b) return;
@@ -803,7 +804,17 @@ const views = {
         else if (b.dataset.end && confirm(t('Return this account to self-managed?'))) { await api(`/staff/accounts/${b.dataset.end}/mode`, { method: 'POST', body: { mode: 'self' } }); views.staff(el); }
       } catch (x) { alert(x.message); }
     };
-    $('#addm', el).onsubmit = async e => { e.preventDefault(); try { await api(`/staff/accounts/${e.target.id.value}/mode`, { method: 'POST', body: { mode: 'managed' } }); views.staff(el); } catch (x) { alert(x.message); } };
+    $('#addm', el).onsubmit = async e => {
+      e.preventDefault();
+      try {
+        const hits = await api('/staff/lookup?email=' + encodeURIComponent(e.target.q.value));
+        $('#found', el).innerHTML = `<table>${hits.map(a => `<tr><td>${esc(a.email)}</td><td>${esc(a.name || '')}</td><td>${a.mode === 'managed' ? `<span class="muted">${t('Managed')}</span>` : `<button type="button" data-set="${a.id}">${t('Set as managed')}</button>`}</td></tr>`).join('') || `<tr><td class="muted">${t('No accounts found.')}</td></tr>`}</table>`;
+      } catch (x) { alert(x.message); }
+    };
+    $('#found', el).onclick = async e => {
+      const b = e.target.closest('[data-set]'); if (!b || !confirm(t('Manage this account for the client?'))) return;
+      try { await api(`/staff/accounts/${b.dataset.set}/mode`, { method: 'POST', body: { mode: 'managed' } }); views.staff(el); } catch (x) { alert(x.message); }
+    };
   },
 
   async profile(el) {

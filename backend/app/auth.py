@@ -174,6 +174,19 @@ def staff_accounts(user: dict = Depends(staff_user)):
     return [dict(r) for r in rows]
 
 
+@staff_router.get("/lookup")
+def staff_lookup(email: str, user: dict = Depends(staff_user)):
+    """Find accounts by part of an email (at least 3 characters) so staff can mark one as managed."""
+    term = email.strip().lower()
+    if len(term) < 3:
+        raise HTTPException(400, "type at least 3 characters")
+    like = "%" + term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    with session_scope() as session:
+        rows = session.execute(select(User.id, User.email, User.name, User.mode)
+                               .where(func.lower(User.email).like(like, escape="\\")).order_by(User.email).limit(10)).mappings().all()
+    return [dict(r) for r in rows]
+
+
 @staff_router.post("/accounts/{account_id}/mode")
 def staff_set_mode(account_id: int, body: dict, user: dict = Depends(staff_user)):
     mode = (body or {}).get("mode")
