@@ -326,6 +326,10 @@ def apply(body: ApplyIn, user: dict = Depends(current_user)):
     else:
         if body.value is None or body.value <= 0:
             raise HTTPException(400, "budget value required")
+        if body.value > (row["daily_budget"] or 0):                 # staff need the client's approval to raise spending
+            waiting = approvals.gate(user, body.campaign_id, "budget", body.value)
+            if waiting:
+                return waiting
         if row["external_id"]:
             _, err = _sync(user["id"], row["platform"], lambda p: p.set_budget(row["external_id"], body.value))
         values = {"daily_budget": body.value}

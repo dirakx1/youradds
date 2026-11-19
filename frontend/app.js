@@ -1,5 +1,5 @@
-import { auth } from './auth.js?v=brand-24';
-import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-24';
+import { auth } from './auth.js?v=brand-25';
+import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-25';
 
 const authPollers = new Set();
 
@@ -583,7 +583,8 @@ const views = {
       const b = e.target.closest('button[data-i]'); if (!b) return;
       const r = recs[b.dataset.i];
       const res = await api('/ai/apply', { method: 'POST', body: { campaign_id: r.campaign_id, action: r.action, value: r.value } });
-      if (res.sync_error) alert(t('Platform sync failed: {e}', { e: res.sync_error }));
+      if (res.approval) alert(t('Sent to the client for approval. It starts when they approve.'));
+      else if (res.sync_error) alert(t('Platform sync failed: {e}', { e: res.sync_error }));
       views.optimizer(el);
     };
   },
@@ -1056,7 +1057,7 @@ async function loadApprovals() {
   if (!box) { box = document.createElement('div'); box.id = 'approvals'; $('#view').before(box); }
   const list = await api('/approvals').catch(() => []);
   const acting = !!window.__youradsMe?.acting_as;
-  box.innerHTML = list.length ? `<div class="approvals">${list.map(a => `<p><b>${esc(a.name)}</b> · ${money(a.daily_budget)}/${t('day')} — ${acting ? t('Waiting for the client to approve.') : t('youradds wants to start this campaign and spend up to its daily budget.')}${acting ? '' : ` <button type="button" class="pri" data-ap="approve" data-id="${a.id}">${t('Approve')}</button> <button type="button" data-ap="decline" data-id="${a.id}">${t('Decline')}</button>`}</p>`).join('')}</div>` : '';
+  box.innerHTML = list.length ? `<div class="approvals">${list.map(a => `<p><b>${esc(a.name)}</b> · ${a.kind === 'budget' ? `${money(a.daily_budget)} → ${money(a.value)}` : money(a.daily_budget)}/${t('day')} — ${acting ? t('Waiting for the client to approve.') : a.kind === 'budget' ? t('youradds wants to raise the daily budget of this campaign.') : t('youradds wants to start this campaign and spend up to its daily budget.')}${acting ? '' : ` <button type="button" class="pri" data-ap="approve" data-id="${a.id}">${t('Approve')}</button> <button type="button" data-ap="decline" data-id="${a.id}">${t('Decline')}</button>`}</p>`).join('')}</div>` : '';
   box.onclick = async e => {
     const b = e.target.closest('[data-ap]'); if (!b) return;
     if (b.dataset.ap === 'approve' && !confirm(t('Approve? Meta will start spending on this campaign.'))) return;

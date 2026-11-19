@@ -72,11 +72,14 @@ class Approval(Base):
     """A staff request to start spending on a client's campaign; the client decides."""
     __tablename__ = "approvals"
     __table_args__ = (Index("ix_approvals_account_id", "account_id", "id"),
-                      CheckConstraint("status IN ('pending', 'approved', 'declined')", name="ck_approvals_status"), {"schema": SCHEMA})
+                      CheckConstraint("status IN ('pending', 'approved', 'declined')", name="ck_approvals_status"),
+                      CheckConstraint("kind IN ('activate', 'budget')", name="ck_approvals_kind"), {"schema": SCHEMA})
     id: Mapped[int] = mapped_column(BigInteger, Identity(always=False), primary_key=True)
     account_id: Mapped[int] = mapped_column(BigInteger, ForeignKey(f"{SCHEMA}.users.id", ondelete="CASCADE"), nullable=False)
     campaign_id: Mapped[int] = mapped_column(BigInteger, ForeignKey(f"{SCHEMA}.campaigns.id", ondelete="CASCADE"), nullable=False)
     requested_by: Mapped[str] = mapped_column(Text, nullable=False)
+    kind: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'activate'"))     # 'activate' or 'budget'
+    value: Mapped[float | None] = mapped_column(Double)           # activate: the daily budget approved; budget: the new daily budget
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'pending'"))
     requested_at: Mapped[str | None] = mapped_column(Text, server_default=UTC_NOW)
     decided_at: Mapped[str | None] = mapped_column(Text)

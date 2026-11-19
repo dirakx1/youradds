@@ -165,3 +165,39 @@ class SpendApprovalTests(ManagedBase):
         self.use("user_two")
         self.assertEqual(self.client.post(f"/api/campaigns/{self.cid}/status", params={"status": "active"}).json()["ok"], True)
         self.assertEqual(self.client.get("/api/approvals").json(), [])
+
+    def raise_budget(self, value, cid=None):
+        return self.client.post("/api/ai/apply", json={"campaign_id": cid or self.cid, "action": "budget", "value": value})
+
+    def budget_of(self, subject="user_two"):
+        self.use(subject)
+        return [c["daily_budget"] for c in self.client.get("/api/campaigns").json() if c["id"] == self.cid][0]
+
+    def test_staff_budget_increases_wait_for_the_client_but_decreases_do_not(self):
+        self.act()
+        self.assertEqual(self.raise_budget(10000).json()["ok"], True)                 # lower: goes through
+        self.assertEqual(self.budget_of("user_one"), 10000)
+        self.act()
+        first = self.raise_budget(30000).json()
+        self.assertEqual((first["ok"], first["approval"]), (False, "pending"))
+        second = self.raise_budget(40000).json()
+        self.assertEqual(second["approval_id"], first["approval_id"])                 # one open raise; the latest amount wins
+        self.assertEqual(self.budget_of("user_one"), 10000)                           # nothing changed yet
+        self.client.headers.pop("X-Act-As")
+        self.use("user_two")
+        waiting = self.client.get("/api/approvals").json()
+        self.assertEqual((waiting[0]["kind"], waiting[0]["value"]), ("budget", 40000))
+        self.assertEqual(self.client.post(f"/api/approvals/{first['approval_id']}/approve").json()["ok"], True)
+        self.assertEqual(self.budget_of(), 40000)
+
+    def test_a_raise_after_activation_was_requested_voids_that_activation(self):
+        self.act()
+        activate = self.client.post(f"/api/campaigns/{self.cid}/status", params={"status": "active"}).json()["approval_id"]
+        self.raise_budget(10000)                                                      # lowering is fine and keeps the request valid
+        self.client.headers.pop("X-Act-As")
+        self.use("user_two")
+        self.assertEqual(self.raise_budget(90000).json()["ok"], True)                 # the client raising it themselves
+        r = self.client.post(f"/api/approvals/{activate}/approve")
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(self.status_of("user_two"), "paused")
+        self.assertEqual(self.client.get("/api/approvals").json(), [])
