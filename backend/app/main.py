@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, update
 
-from . import ai, approvals, auth, brand, config, creds, managed, partner
+from . import ai, approvals, auth, brand, config, creds, managed, notify, partner
 from .auth import current_user
 from .config import PLATFORMS, validate_clerk_config
 from .db import check_database_revision, dispose_engine, engine, session_scope
@@ -27,10 +27,11 @@ async def lifespan(app):
     await asyncio.to_thread(creds.backfill_links)
     followups = asyncio.create_task(whatsapp.followup_loop())
     results = asyncio.create_task(insights.sync_loop())
+    digests = asyncio.create_task(notify.digest_loop())
     try:
         yield
     finally:
-        for task in (followups, results):
+        for task in (followups, results, digests):
             task.cancel()
             try:
                 await task

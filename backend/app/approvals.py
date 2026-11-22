@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, update
 
+from . import notify
 from .auth import current_user
 from .db import session_scope
 from .models import Approval, Campaign, User
@@ -21,6 +22,7 @@ def gate(user: dict, cid: int, kind: str = "activate", value: float | None = Non
             value = session.scalar(select(Campaign.daily_budget).where(Campaign.id == cid, Campaign.user_id == user["id"]))
         found = session.scalar(select(Approval).where(Approval.campaign_id == cid, Approval.account_id == user["id"],
                                                       Approval.kind == kind, Approval.status == "pending"))
+        new_request = found is None
         if found is None:
             found = Approval(account_id=user["id"], campaign_id=cid, requested_by=acting["staff_email"], kind=kind, value=value)
             session.add(found)
@@ -28,6 +30,8 @@ def gate(user: dict, cid: int, kind: str = "activate", value: float | None = Non
         elif kind == "budget":
             found.value = value                       # the latest amount asked for replaces the earlier one
         found_id = found.id
+    if new_request:
+        notify.client_approval_needed(user["id"], cid, kind)            # the client has to act: tell them
     return {"ok": False, "approval": "pending", "approval_id": found_id, "sync_error": None}
 
 

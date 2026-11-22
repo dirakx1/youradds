@@ -22,6 +22,7 @@ class User(Base):
     clerk_user_id: Mapped[str | None] = mapped_column(Text)
     webhook_key: Mapped[str] = mapped_column(Text, nullable=False)
     mode: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'self'"))   # 'self' or 'managed' (set by youradds staff)
+    activity_notified_id: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text("0"))   # last audit row the client was emailed about
     managed_requested_at: Mapped[str | None] = mapped_column(Text)                                  # the client asked youradds to manage their ads
     staff_activation: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))   # client lets youradds staff activate campaigns
     created_at: Mapped[str | None] = mapped_column(Text, server_default=UTC_NOW)

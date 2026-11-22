@@ -196,6 +196,7 @@ def staff_set_mode(account_id: int, body: dict, user: dict = Depends(staff_user)
         account = session.get(User, account_id)
         if not account:
             raise HTTPException(404, "account not found")
+        was = account.mode
         account.mode = mode
         if mode == "managed":
             account.managed_requested_at = None        # the request is answered
@@ -204,6 +205,9 @@ def staff_set_mode(account_id: int, body: dict, user: dict = Depends(staff_user)
         if managed.end_management(account_id):
             audit(user, account_id, "disconnected partner ad account")
     audit(user, account_id, f"set mode {mode}")
+    if was != mode:
+        from . import notify
+        (notify.client_now_managed(account_id) if mode == "managed" else notify.client_ended(account_id, "staff"))
     return {"id": account_id, "mode": mode}
 
 

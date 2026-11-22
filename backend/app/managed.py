@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, update
 
-from . import config, creds
+from . import config, creds, notify
 from .auth import audit, current_user, staff_user
 from .db import session_scope
 from .models import Approval, User
@@ -33,7 +33,10 @@ def request_managed(user: dict = Depends(current_user)):
         raise HTTPException(409, "youradds already manages this account")
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     with session_scope() as session:
-        session.execute(update(User).where(User.id == user["id"], User.managed_requested_at.is_(None)).values(managed_requested_at=now))
+        fresh = session.execute(update(User).where(User.id == user["id"], User.managed_requested_at.is_(None))
+                                .values(managed_requested_at=now)).rowcount
+    if fresh:
+        notify.staff_new_request(user)
     return _state(user)
 
 
@@ -75,4 +78,5 @@ def end(user: dict = Depends(current_user)):
         raise HTTPException(409, "youradds does not manage this account")
     removed = end_management(user["id"])
     audit({"email": f"{user['email']} (client)"}, user["id"], "client ended management" + (" and removed partner access" if removed else ""))
+    notify.client_ended(user["id"], "client")
     return {**_state({**user, "mode": "self"}), "partner_removed": removed}
