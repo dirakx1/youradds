@@ -200,9 +200,8 @@ def staff_set_mode(account_id: int, body: dict, user: dict = Depends(staff_user)
         if mode == "managed":
             account.managed_requested_at = None        # the request is answered
     if mode == "self":                    # ending management also ends the access youradds had to the client's ad account
-        from . import creds
-        if creds.get(account_id, "meta", raw=True).get("partner") == "1":
-            creds._save(account_id, "meta", {})
+        from . import managed
+        if managed.end_management(account_id):
             audit(user, account_id, "disconnected partner ad account")
     audit(user, account_id, f"set mode {mode}")
     return {"id": account_id, "mode": mode}

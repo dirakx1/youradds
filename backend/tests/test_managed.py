@@ -375,3 +375,60 @@ class ManagedRequestTests(ManagedBase):
             self.assertEqual((s["business_id"], s["business_name"], s["partner"]), ("1234567890", "KubeAI LLC", False))
             creds.save_partner(self.customer, "act_9", "5")
             self.assertTrue(self.client.get("/api/managed/state").json()["partner"])
+
+
+class EndManagementTests(ManagedBase):
+    """Ending management hands the account back: youradds loses access, nothing the client built is touched."""
+    def setUp(self):
+        super().setUp()
+        from app import creds
+        self.manage()
+        creds.save_partner(self.customer, "act_777", "100")
+        self.use("user_two")
+        self.client.put("/api/approvals/settings", json={"staff_activation": True})
+        self.cid = self.client.post("/api/campaigns", json={"platform": "meta", "name": "Mine", "daily_budget": 20000}).json()["id"]
+        self.client.put("/api/approvals/settings", json={"staff_activation": False})
+        self.use("user_one"); self.act()
+        self.aid = self.client.post(f"/api/campaigns/{self.cid}/status", params={"status": "active"}).json()["approval_id"]
+        self.client.headers.pop("X-Act-As")
+
+    def check_handed_back(self):
+        from app import creds
+        self.assertEqual(creds.get(self.customer, "meta", raw=True), {})                    # partner access gone
+        self.use("user_two")
+        self.assertEqual(self.client.get("/api/managed/state").json()["mode"], "self")
+        self.assertEqual(self.client.get("/api/approvals").json(), [])                      # the open request was closed
+        self.assertIn(self.cid, [c["id"] for c in self.client.get("/api/campaigns").json()])   # their campaign is untouched
+        self.use("user_one")
+        self.act()
+        self.assertEqual(self.client.get("/api/campaigns").status_code, 403)                # staff can no longer open it
+        self.client.headers.pop("X-Act-As")
+
+    def test_the_client_ends_management_themselves(self):
+        self.use("user_two")
+        r = self.client.post("/api/managed/end").json()
+        self.assertEqual((r["mode"], r["partner_removed"]), ("self", True))
+        self.check_handed_back()
+        self.assertEqual(self.client.post("/api/approvals/%d/approve" % self.aid).status_code, 404)   # nobody can approve it later
+        self.use("user_one")
+        actions = [a["action"] for a in self.client.get("/api/staff/audit", params={"account_id": self.customer}).json()]
+        self.assertIn("client ended management and removed partner access", actions)
+
+    def test_a_client_who_is_not_managed_cannot_end_it_and_staff_cannot_end_it_for_them_this_way(self):
+        self.use("user_one")
+        self.assertEqual(self.client.post("/api/managed/end").status_code, 409)             # staff's own account is not managed
+        self.act()
+        self.assertEqual(self.client.post("/api/managed/end").status_code, 403)
+
+    def test_staff_ending_management_does_the_same(self):
+        self.use("user_one")
+        self.client.post(f"/api/staff/accounts/{self.customer}/mode", json={"mode": "self"})
+        self.check_handed_back()
+
+    def test_a_clients_own_connection_survives(self):
+        from app import creds
+        creds._save(self.customer, "meta", {"access_token": "own-token-1234567", "ad_account_id": "act_5"})
+        self.use("user_two")
+        r = self.client.post("/api/managed/end").json()
+        self.assertFalse(r["partner_removed"])
+        self.assertEqual(creds.get(self.customer, "meta", raw=True)["access_token"], "own-token-1234567")

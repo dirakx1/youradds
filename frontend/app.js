@@ -1,5 +1,5 @@
-import { auth } from './auth.js?v=brand-28';
-import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-28';
+import { auth } from './auth.js?v=brand-29';
+import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-29';
 
 const authPollers = new Set();
 
@@ -1083,6 +1083,14 @@ async function managedCards(el) {
   if (!ms) return;
   const again = () => views.connections(el);
   if (ms.mode !== 'managed') {
+    let ended = false; try { ended = localStorage.getItem('mgEnded') === '1'; } catch {}
+    if (ended) {
+      el.insertAdjacentHTML('beforeend', `<div class="card" id="mgended"><h3>${t('youradds no longer manages your ads')}</h3>
+        <p>${t('One last step so youradds loses all access: in Meta Business settings open Partners, find youradds and remove it. Also remove youradds from your ad account and Page if it still appears there.')}</p>
+        <p class="muted">${t('Campaigns that are already running keep running in your ad account. Pause them on the Campaigns page if you want them stopped.')}</p>
+        <p><a href="https://business.facebook.com/settings/partners" target="_blank" rel="noopener">${t('Open')}</a> <button type="button" data-done>${t('Done')}</button></p></div>`);
+      $('[data-done]', el).onclick = () => { try { localStorage.removeItem('mgEnded'); } catch {} again(); };
+    }
     el.insertAdjacentHTML('beforeend', `<div class="card" id="mgreq"><h3>${t('Want youradds to run your ads?')}</h3>${ms.requested_at
       ? `<p>${t('Request sent on {d}. youradds will set it up and contact you.', { d: esc(ms.requested_at.slice(0, 10)) })}</p><button type="button" data-cancel>${t('Cancel request')}</button>`
       : `<p class="muted">${t('Our team prepares and manages your campaigns. You keep your ad account and your card, and you approve before money is spent.')}</p><button type="button" class="pri" data-ask>${t('Ask youradds to manage my ads')}</button>`}</div>`);
@@ -1107,9 +1115,14 @@ async function managedCards(el) {
   const done = k => { try { return localStorage.getItem('managed:' + k) === '1'; } catch { return false; } };
   el.insertAdjacentHTML('beforeend', `<div class="card" id="mgsteps"><h3>${t('Give youradds access to your ads')}</h3>
     <ul class="ready">${STEPS.map(([k, text, url]) => `<li><label><input type="checkbox" data-step="${k}"${done(k) ? ' checked' : ''}> ${text}</label> <a href="${url}" target="_blank" rel="noopener">${t('Open')}</a></li>`).join('')}</ul>
-    <p class="${ms.partner ? 'st-active' : 'muted'}">${ms.partner ? '✅ ' + t('youradds has access to your ad account.') : t('When you finish, youradds checks the access and connects your account. You do not need to do anything else.')}</p></div>`);
+    <p class="${ms.partner ? 'st-active' : 'muted'}">${ms.partner ? '✅ ' + t('youradds has access to your ad account.') : t('When you finish, youradds checks the access and connects your account. You do not need to do anything else.')}</p>
+    <p><button type="button" data-endmg>${t('End management')}</button></p></div>`);
   const box = $('#mgsteps', el);
   box.onchange = e => { const k = e.target.dataset.step; if (k) { try { localStorage.setItem('managed:' + k, e.target.checked ? '1' : ''); } catch {} } };
+  $('[data-endmg]', box).onclick = async () => {
+    if (!confirm(t('End management? youradds will lose access to your ad account. Campaigns that are already running keep running.'))) return;
+    try { await api('/managed/end', { method: 'POST' }); try { localStorage.setItem('mgEnded', '1'); } catch {} window.__youradsMe = { ...window.__youradsMe, mode: 'self' }; again(); } catch (x) { alert(x.message); }
+  };
   box.onclick = async e => { const b = e.target.closest('[data-copy]'); if (b) { try { await navigator.clipboard.writeText(b.dataset.copy); b.textContent = t('Copied'); } catch { prompt(t('Copy'), b.dataset.copy); } } };
 }
 

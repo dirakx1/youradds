@@ -5,9 +5,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, update
 
 from . import config, creds
-from .auth import current_user, staff_user
+from .auth import audit, current_user, staff_user
 from .db import session_scope
-from .models import User
+from .models import Approval, User
 
 router = APIRouter(prefix="/api/managed")
 staff_router = APIRouter(prefix="/api/staff")
@@ -51,3 +51,28 @@ def requests(user: dict = Depends(staff_user)):
                                .where(User.managed_requested_at.is_not(None), User.mode == "self")
                                .order_by(User.managed_requested_at)).mappings().all()
     return [{"id": r["id"], "email": r["email"], "name": r["name"], "requested_at": r["managed_requested_at"]} for r in rows]
+
+
+def end_management(account_id: int) -> bool:
+    """Return an account to self-managed: youradds loses its access, open requests are closed, staff permissions reset.
+    Campaigns already created or running are left exactly as they are. Returns whether partner access was removed."""
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    with session_scope() as session:
+        session.execute(update(User).where(User.id == account_id)
+                        .values(mode="self", staff_activation=False, managed_requested_at=None))
+        session.execute(update(Approval).where(Approval.account_id == account_id, Approval.status == "pending")
+                        .values(status="declined", decided_at=now))
+    partner = creds.get(account_id, "meta", raw=True).get("partner") == "1"
+    if partner:
+        creds._save(account_id, "meta", {})
+    return partner
+
+
+@router.post("/end")
+def end(user: dict = Depends(current_user)):
+    """The client ends management themselves; they still remove youradds in Meta Business settings."""
+    if user["mode"] != "managed":
+        raise HTTPException(409, "youradds does not manage this account")
+    removed = end_management(user["id"])
+    audit({"email": f"{user['email']} (client)"}, user["id"], "client ended management" + (" and removed partner access" if removed else ""))
+    return {**_state({**user, "mode": "self"}), "partner_removed": removed}
