@@ -59,7 +59,7 @@ def build_app() -> FastAPI:
     def reset():
         for k in ("meta", "tiktok", "google", "budgets", "log"):
             state[k].clear()
-        for k in ("meta_objs", "dev_mode", "wa_unlinked", "no_ig"):
+        for k in ("meta_objs", "dev_mode", "wa_unlinked", "no_ig", "partner_accounts", "partner_pages"):
             state.pop(k, None)
         return {"ok": True}
 
@@ -278,6 +278,19 @@ def build_app() -> FastAPI:
                     return meta_err("Invalid parameter: daily_budget must be an integer in the account currency's minor unit (cents)", 100)
                 c["daily_budget"] = p["daily_budget"]
             return {"success": True}
+        if request.method == "GET" and re.fullmatch(r"act_\d+", path) and "account_status" in p.get("fields", ""):
+            shared = state.get("partner_accounts", {}).get(path)       # ad accounts a client shared with the system user
+            if not shared:
+                return meta_err(f"Unsupported get request. Object with ID '{path}' does not exist, cannot be loaded due to missing permissions, or does not support this operation.", 100)
+            out = {"id": path, "name": shared["name"], "currency": shared["currency"], "account_status": shared["status"]}
+            if shared.get("payment", True):
+                out["funding_source_details"] = {"id": "1", "type": 1, "display_string": "Visa *4242"}
+            return out
+        if request.method == "GET" and re.fullmatch(r"\d+", path) and p.get("fields", "").startswith("id,name,instagram_business_account"):
+            page = state.get("partner_pages", {}).get(path)
+            if not page:
+                return meta_err(f"Unsupported get request. Object with ID '{path}' does not exist, cannot be loaded due to missing permissions, or does not support this operation.", 100)
+            return {"id": path, "name": page["name"], **({"instagram_business_account": {"id": page["instagram"]}} if page.get("instagram") else {})}
         if request.method == "GET" and p.get("fields") == "account_id" and path not in camps:
             return meta_err(f"Unsupported get request. Object with ID '{path}' does not exist, cannot be loaded due to missing permissions, or does not support this operation.", 100)
         if re.fullmatch(r"(act_)?\d+", path):    # account / phone-number probes (?fields=id)

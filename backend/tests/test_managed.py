@@ -260,3 +260,80 @@ class PartnerConnectionTests(ManagedBase):
         creds.save_partner(self.customer, "act_777")
         self.assertEqual(self.client.delete("/api/connections/meta").status_code, 200)
         self.assertEqual(creds.get(self.customer, "meta"), {})
+
+
+class PartnerOnboardingTests(ManagedBase):
+    """Staff check what a client shared with youradds' business before connecting it."""
+    def setUp(self):
+        super().setUp()
+        import httpx
+        from devtools.fake_ads import env_for, serve_in_thread
+        base, stop = serve_in_thread()
+        self.addCleanup(stop)
+        env = patch.dict(os.environ, {**env_for(base), "META_SYSTEM_TOKEN": "SYSTEM-TOKEN-ZQXJ"})
+        env.start()
+        self.addCleanup(env.stop)
+        self.flags = lambda **f: httpx.post(base + "/__flags", json=f)
+        self.flags(partner_accounts={"act_777": {"name": "Cafe Client", "currency": "COP", "status": 1}},
+                   partner_pages={"100": {"name": "Cafe Page", "instagram": "200"}})
+        self.manage()
+        self.url = f"/api/staff/accounts/{self.customer}/partner"
+        self.body = {"ad_account_id": "act_777", "page_id": "100"}
+
+    def test_only_staff_and_only_for_managed_accounts(self):
+        self.use("user_two")
+        self.assertEqual(self.client.post(self.url + "/verify", json=self.body).status_code, 403)
+        self.use("user_one")
+        self.client.post(f"/api/staff/accounts/{self.customer}/mode", json={"mode": "self"})
+        self.assertEqual(self.client.post(self.url + "/verify", json=self.body).status_code, 403)
+        self.manage()
+        self.assertEqual(self.client.post(self.url + "/verify", json={"ad_account_id": "abc", "page_id": "100"}).status_code, 400)
+
+    def test_verify_reports_what_is_missing(self):
+        ok = self.client.post(self.url + "/verify", json=self.body).json()
+        self.assertEqual((ok["ready"], ok["problems"], ok["account"]["name"], ok["page"]["instagram_id"]), (True, [], "Cafe Client", "200"))
+        nothing = self.client.post(self.url + "/verify", json={"ad_account_id": "999", "page_id": "888"}).json()
+        self.assertEqual((nothing["ready"], nothing["problems"]), (False, ["not_shared", "page_not_shared"]))
+        self.flags(partner_accounts={"act_777": {"name": "Cafe Client", "currency": "COP", "status": 2}})
+        self.assertEqual(self.client.post(self.url + "/verify", json=self.body).json()["problems"], ["restricted"])
+        self.flags(partner_accounts={"act_777": {"name": "Cafe Client", "currency": "COP", "status": 1, "payment": False}})
+        self.assertEqual(self.client.post(self.url + "/verify", json=self.body).json()["problems"], ["no_payment"])
+        with patch.dict(os.environ, {"META_SYSTEM_TOKEN": ""}):
+            self.assertEqual(self.client.post(self.url + "/verify", json=self.body).json()["problems"], ["no_token"])
+
+    def test_connect_saves_a_partner_connection_and_is_audited(self):
+        from app import creds
+        r = self.client.post(self.url + "/connect", json=self.body)
+        self.assertEqual((r.status_code, r.json()["ok"]), (200, True))
+        stored = creds.get(self.customer, "meta", raw=True)
+        self.assertEqual((stored["partner"], stored["ad_account_id"], stored["page_id"], stored["instagram_account_id"]), ("1", "act_777", "100", "200"))
+        self.assertTrue(creds.connected(self.customer, "meta"))
+        self.assertEqual(self.client.get(self.url).json()["ad_account_id"], "act_777")
+        self.use("user_two")
+        self.assertTrue(self.client.get("/api/oauth/meta/state").json()["partner"])
+        self.use("user_one")
+        actions = [a["action"] for a in self.client.get("/api/staff/audit", params={"account_id": self.customer}).json()]
+        self.assertIn("connected partner ad account act_777", actions)
+
+    def test_connect_refuses_when_not_ready_or_already_owned_or_the_client_has_their_own(self):
+        from app import creds
+        self.flags(partner_accounts={"act_777": {"name": "Cafe Client", "currency": "COP", "status": 1, "payment": False}})
+        r = self.client.post(self.url + "/connect", json=self.body)
+        self.assertEqual((r.status_code, r.json()["detail"]), (409, "not ready: no_payment"))
+        self.assertEqual(creds.get(self.customer, "meta", raw=True), {})
+        self.flags(partner_accounts={"act_777": {"name": "Cafe Client", "currency": "COP", "status": 1}})
+        creds.save_partner(self.user_ids["user_one"], "act_777")                           # someone else already owns it
+        self.assertEqual(self.client.post(self.url + "/connect", json=self.body).status_code, 409)
+        creds._save(self.user_ids["user_one"], "meta", {})
+        creds._save(self.customer, "meta", {"access_token": "own-token-1234567", "ad_account_id": "act_5"})
+        self.assertEqual(self.client.post(self.url + "/connect", json=self.body).status_code, 409)
+
+    def test_disconnecting_or_ending_management_removes_the_access(self):
+        from app import creds
+        self.client.post(self.url + "/connect", json=self.body)
+        self.assertEqual(self.client.post(self.url + "/disconnect").status_code, 200)
+        self.assertEqual(creds.get(self.customer, "meta", raw=True), {})
+        self.assertEqual(self.client.post(self.url + "/disconnect").status_code, 409)
+        self.client.post(self.url + "/connect", json=self.body)
+        self.client.post(f"/api/staff/accounts/{self.customer}/mode", json={"mode": "self"})
+        self.assertEqual(creds.get(self.customer, "meta", raw=True), {})

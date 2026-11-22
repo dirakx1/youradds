@@ -197,6 +197,11 @@ def staff_set_mode(account_id: int, body: dict, user: dict = Depends(staff_user)
         if not account:
             raise HTTPException(404, "account not found")
         account.mode = mode
+    if mode == "self":                    # ending management also ends the access youradds had to the client's ad account
+        from . import creds
+        if creds.get(account_id, "meta", raw=True).get("partner") == "1":
+            creds._save(account_id, "meta", {})
+            audit(user, account_id, "disconnected partner ad account")
     audit(user, account_id, f"set mode {mode}")
     return {"id": account_id, "mode": mode}
 

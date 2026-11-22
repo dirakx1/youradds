@@ -1,5 +1,5 @@
-import { auth } from './auth.js?v=brand-26';
-import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-26';
+import { auth } from './auth.js?v=brand-27';
+import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-27';
 
 const authPollers = new Set();
 
@@ -794,14 +794,41 @@ const views = {
     const rows = await api('/staff/accounts');
     el.innerHTML = `<h2>${t('Accounts managed by youradds')}</h2>
       <p class="muted">${t('Open an account to work inside it. Everything you change there is recorded.')}</p>
-      <table>${rows.map(a => `<tr><td>${esc(a.email)}</td><td>${esc(a.name || '')}</td><td><button type="button" data-open="${a.id}" data-email="${esc(a.email)}">${t('Open')}</button> <button type="button" data-log="${a.id}">${t('Activity')}</button> <button type="button" data-end="${a.id}">${t('End management')}</button></td></tr>`).join('') || `<tr><td class="muted">${t('No managed accounts yet.')}</td></tr>`}</table>
+      <table>${rows.map(a => `<tr><td>${esc(a.email)}</td><td>${esc(a.name || '')}</td><td><button type="button" data-open="${a.id}" data-email="${esc(a.email)}">${t('Open')}</button> <button type="button" data-log="${a.id}">${t('Activity')}</button> <button type="button" data-meta="${a.id}">${t('Meta access')}</button> <button type="button" data-end="${a.id}">${t('End management')}</button></td></tr>`).join('') || `<tr><td class="muted">${t('No managed accounts yet.')}</td></tr>`}</table>
       <form id="addm" class="stack"><label>${t('Find an account by email')}<input name="q" type="search" minlength="3" placeholder="name@example.com" required></label><button class="pri">${t('Search')}</button></form>
       <div id="found"></div>
+      <div id="metapanel"></div>
       <div id="log"></div>`;
+    const PROBLEMS = { no_token: 'The server has no Meta system token yet (META_SYSTEM_TOKEN).', not_shared: 'The ad account is not shared with youradds yet, or the ID is wrong.', page_not_shared: 'The Page is not shared with youradds yet, or the ID is wrong.', restricted: 'The ad account is not active (restricted or disabled).', no_payment: 'The ad account has no payment method.' };
+    const metaPanel = async id => {
+      const box = $('#metapanel', el), st = await api(`/staff/accounts/${id}/partner`);
+      if (st.partner) {
+        box.innerHTML = `<div class="card"><h3>${t('Meta access')}</h3><p>✅ ${t('Connected through youradds')} · <b>${esc(st.ad_account_id)}</b> · ${t('Page')} ${esc(st.page_id)}</p><button type="button" data-pdis>${t('Disconnect')}</button></div>`;
+        $('[data-pdis]', box).onclick = async () => { if (!confirm(t('Disconnect this ad account from the client?'))) return; try { await api(`/staff/accounts/${id}/partner/disconnect`, { method: 'POST' }); metaPanel(id); } catch (x) { alert(x.message); } };
+        return;
+      }
+      if (st.other_connection) { box.innerHTML = `<div class="card"><h3>${t('Meta access')}</h3><p class="toast">${t('The client already has their own Meta connection. They must disconnect it first.')}</p></div>`; return; }
+      box.innerHTML = `<div class="card"><h3>${t('Meta access')}</h3><p class="muted">${t('The client shares their ad account and Page with youradds in Meta. Enter their IDs, verify, then connect.')}</p>
+        ${st.system_token ? '' : `<p class="toast">${t(PROBLEMS.no_token)}</p>`}
+        <form id="pf" class="stack"><label>${t('Ad account ID')}<input name="ad" required placeholder="act_1234567890"></label><label>${t('Facebook Page ID')}<input name="page" required placeholder="1234567890"></label>
+        <div><button class="pri" data-pv>${t('Verify access')}</button> <button type="button" data-pc disabled>${t('Connect')}</button></div></form><div id="pres"></div></div>`;
+      const form = $('#pf', box), body = () => ({ ad_account_id: form.ad.value, page_id: form.page.value });
+      form.onsubmit = async e => {
+        e.preventDefault(); $('[data-pc]', box).disabled = true;
+        try {
+          const r = await api(`/staff/accounts/${id}/partner/verify`, { method: 'POST', body: body() });
+          $('#pres', box).innerHTML = r.ready ? `<p class="st-active">✅ ${t('Ready')}: <b>${esc(r.account.name)}</b> (${esc(r.account.currency)}) · ${t('Page')} ${esc(r.page.name)}</p>`
+            : `<ul>${r.problems.map(c => `<li class="st-warn">${t(PROBLEMS[c] || c)}${c === 'restricted' && r.account ? ` (${esc(r.account.status)})` : ''}</li>`).join('')}</ul>`;
+          $('[data-pc]', box).disabled = !r.ready;
+        } catch (x) { alert(x.message); }
+      };
+      $('[data-pc]', box).onclick = async () => { try { await api(`/staff/accounts/${id}/partner/connect`, { method: 'POST', body: body() }); metaPanel(id); } catch (x) { alert(x.message); } };
+    };
     el.onclick = async e => {
       const b = e.target.closest('button'); if (!b) return;
       try {
         if (b.dataset.open) { await api(`/staff/accounts/${b.dataset.open}/open`, { method: 'POST' }); setActingAs({ id: +b.dataset.open }); location.hash = '#dashboard'; location.reload(); }
+        else if (b.dataset.meta) await metaPanel(b.dataset.meta);
         else if (b.dataset.log) { const log = await api('/staff/audit?account_id=' + b.dataset.log); $('#log', el).innerHTML = `<table>${log.map(r => `<tr><td>${esc(r.at)}</td><td>${esc(r.staff_email)}</td><td>${esc(r.action)}</td></tr>`).join('') || `<tr><td class="muted">${t('No activity yet.')}</td></tr>`}</table>`; }
         else if (b.dataset.end && confirm(t('Return this account to self-managed?'))) { await api(`/staff/accounts/${b.dataset.end}/mode`, { method: 'POST', body: { mode: 'self' } }); views.staff(el); }
       } catch (x) { alert(x.message); }
