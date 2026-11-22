@@ -109,6 +109,25 @@ Still to build: onboarding with partner sharing and a system user token, the man
 - Managed-service terms (budgets, permissions, how to end it); have a lawyer review.
 - Develop and test with our own Business Manager acting as the client.
 
+### Phase 3 onboarding plan: partner sharing (decided 2026-11-21)
+
+Decisions: (1) partner sharing is the managed model, the client's own Facebook login stays as a fallback; (2) clients can request managed mode (staff then approve and set it); (3) the owner creates the Meta system user and token and tests with their own second ad account as the pretend client.
+
+Flow:
+
+1. The client asks for managed mode (request button; staff are told). Staff approve by marking the account managed.
+2. The client's Connections page shows a checklist: share the ad account and the Facebook Page (and Instagram) with our business portfolio ID, add a payment method, certify Meta's non-discrimination policy.
+3. Staff enter the ad account and Page IDs and press Verify access. The server uses the system token to read the account (name, status, currency, payment) and reports: not shared yet, shared but restricted or without payment, or ready.
+4. When ready, the connection is saved with `source=partner`: no token is stored; the server's system token (`META_SYSTEM_TOKEN`) is added when the connection is read. The one-owner rule still applies.
+5. The client sees "Access shared with youradds". Spending stays behind the client's approvals.
+6. Ending: the client or staff disconnect (account returns to self-managed, logged); the client also removes youradds in Business settings.
+
+Slices: (1) server token support and the `partner` credential source, built 2026-11-21: the token is never stored, shown or listed, and a client cannot browse accounts with it or move the connection; (2) verify-access endpoint and staff UI; (3) client checklist, status and request button; (4) end-management and instructions; (5) email to the client when staff change something.
+
+Meta side (owner): the portfolio owns the app; a system user with the app assigned; a token with `ads_management`, `ads_read`, `business_management`, never expiring, stored only in the server secrets file as `META_SYSTEM_TOKEN`. Real clients need Business Verification and Advanced Access.
+
+Risks: one token reaches every client's shared account (server only, audited, rotatable; Ads Manager access bypasses youradds approvals); Meta limits system users (use one, separate clients in our own code); billing stays on the client's own card.
+
 ## Order of work
 
 1. Phase 0 starts immediately and continues in parallel.

@@ -84,7 +84,21 @@ def _fernet() -> Fernet:
     return Fernet(key)
 
 
-def get(user_id: int, service: str) -> dict:
+def system_token() -> str:
+    """The Meta system-user token youradds staff use for ad accounts that clients shared with our business (server secret)."""
+    return env("META_SYSTEM_TOKEN").strip()
+
+
+def get(user_id: int, service: str, raw: bool = False) -> dict:
+    """The saved connection. A partner connection (a client who shared their ad account with youradds) holds no token of
+    its own: the server's system token is added when read, and never stored or shown. `raw` returns only what is stored."""
+    values = _stored(user_id, service)
+    if not raw and service == "meta" and values.get("partner") == "1":
+        values = {**values, "access_token": system_token()}
+    return values
+
+
+def _stored(user_id: int, service: str) -> dict:
     with session_scope() as session:
         r = session.execute(select(Credential.data).where(Credential.user_id == user_id,
                                                            Credential.service == service)).scalar_one_or_none()
@@ -139,13 +153,25 @@ def _save(user_id: int, service: str, values: dict):
                 session.execute(delete(ConnectionLink).where(ConnectionLink.user_id == user_id, ConnectionLink.service == service))
             return
         _claim(session, user_id, service, values)
+        if values.get("partner") == "1":
+            values = {k: v for k, v in values.items() if k not in ("access_token", "oauth", "expires_at")}   # never store the system token
         enc = _fernet().encrypt(json.dumps(values).encode()).decode()
-        source = "oauth" if values.get("oauth") == "1" else "manual"
+        source = "partner" if values.get("partner") == "1" else "oauth" if values.get("oauth") == "1" else "manual"
         stmt = insert(Credential).values(user_id=user_id, service=service, data=enc, source=source,
                                          expires_at=values.get("expires_at") or None)
         session.execute(stmt.on_conflict_do_update(index_elements=[Credential.user_id, Credential.service],
                           set_={"data": stmt.excluded.data, "source": stmt.excluded.source, "expires_at": stmt.excluded.expires_at,
                                 "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")}))
+
+
+def save_partner(user_id: int, ad_account_id: str, page_id: str = "", instagram_account_id: str = ""):
+    """Connect a client who shared their ad account and Page with youradds; staff only (callers must check)."""
+    values = {"partner": "1", "ad_account_id": ad_account_id.strip()}
+    if page_id.strip():
+        values["page_id"] = page_id.strip()
+    if instagram_account_id.strip():
+        values["instagram_account_id"] = instagram_account_id.strip()
+    _save(user_id, "meta", values)
 
 
 def connected(user_id: int, service: str) -> bool:
@@ -171,13 +197,14 @@ router = APIRouter(prefix="/api/connections")
 
 
 def _describe(user: dict, service: str) -> dict:
-    spec, vals = SERVICES[service], get(user["id"], service)
+    spec, vals = SERVICES[service], get(user["id"], service, raw=True)      # raw: never show the server's system token
     fields = []
     for f in spec["fields"]:
         v = vals.get(f["name"], "")
         fields.append({**f, "set": bool(v), "value": "" if f.get("secret") else v,
                        "masked": _mask(v) if f.get("secret") and v else ""})
-    out = {"service": service, "title": spec["title"], "connected": connected(user["id"], service), "fields": fields}
+    out = {"service": service, "title": spec["title"], "connected": connected(user["id"], service), "fields": fields,
+           "partner": vals.get("partner") == "1"}
     if service == "whatsapp":
         out["webhook_path"] = f"/api/whatsapp/webhook/{user['webhook_key']}"
     if service == "higgsfield" and not out["connected"] and higgsfield_key(user["id"]):
@@ -218,7 +245,9 @@ def save(service: str, body: ConnIn, user: dict = Depends(current_user)):
     if service not in SERVICES:
         raise HTTPException(404, "unknown service")
     names = {f["name"]: f for f in SERVICES[service]["fields"]}
-    cur = get(user["id"], service)
+    cur = get(user["id"], service, raw=True)
+    if cur.get("partner") == "1" and not body.values.get("access_token", "").strip():
+        raise HTTPException(403, "this connection is managed by youradds staff; disconnect it to connect your own account")
     for k, v in body.values.items():
         if k not in names:
             raise HTTPException(400, f"unknown field: {k}")
@@ -236,7 +265,7 @@ def save(service: str, body: ConnIn, user: dict = Depends(current_user)):
             if cur.get(field) and not cur[field].isdigit():
                 raise HTTPException(400, "The Page and Instagram IDs are numbers (not links). Use the 'Detect my Page and Instagram' button.")
     if service == "meta" and body.values.get("access_token", "").strip():
-        for k in ("oauth", "expires_at", "meta_user_id", "scopes"):      # a hand-pasted token replaces the Facebook login
+        for k in ("oauth", "expires_at", "meta_user_id", "scopes", "partner"):      # a hand-pasted token replaces the Facebook login
             cur.pop(k, None)
     if service == "higgsfield" and cur.get("api_key") and ":" not in cur["api_key"]:
         raise HTTPException(400, "Higgsfield key must look like ID:SECRET")

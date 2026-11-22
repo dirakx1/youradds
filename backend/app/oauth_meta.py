@@ -114,7 +114,7 @@ def state(user: dict = Depends(current_user)):
     days = None
     if v.get("expires_at"):
         days = (datetime.fromisoformat(v["expires_at"]).date() - datetime.now(timezone.utc).date()).days
-    return {"enabled": enabled(), "oauth": v.get("oauth") == "1", "has_token": bool(v.get("access_token")),
+    return {"enabled": enabled(), "oauth": v.get("oauth") == "1", "partner": v.get("partner") == "1", "has_token": bool(v.get("access_token")),
             "needs_pick": bool(v.get("access_token")) and not v.get("ad_account_id"),
             "ad_account_id": v.get("ad_account_id", ""), "ad_account_name": v.get("ad_account_name", ""),
             "page_id": v.get("page_id", ""), "expires_in_days": days,
@@ -178,6 +178,8 @@ def callback(request: Request, code: str = "", state: str = "", error: str = "")
 @router.get("/accounts")
 def accounts(user: dict = Depends(current_user)):
     v = creds.get(user["id"], "meta")
+    if v.get("partner") == "1":                 # the system token reaches every client: a client never browses accounts with it
+        raise HTTPException(403, "this connection is managed by youradds staff")
     if not v.get("access_token"):
         raise HTTPException(400, "Connect with Facebook first")
     try:
@@ -195,6 +197,8 @@ class PickIn(BaseModel):
 @router.post("/select")
 def select(body: PickIn, user: dict = Depends(current_user)):
     v = creds.get(user["id"], "meta")
+    if v.get("partner") == "1":                 # the system token reaches every client: a client never browses accounts with it
+        raise HTTPException(403, "this connection is managed by youradds staff")
     if not v.get("access_token"):
         raise HTTPException(400, "Connect with Facebook first")
     try:

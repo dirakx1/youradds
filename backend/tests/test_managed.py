@@ -201,3 +201,62 @@ class SpendApprovalTests(ManagedBase):
         self.assertEqual(r.status_code, 409)
         self.assertEqual(self.status_of("user_two"), "paused")
         self.assertEqual(self.client.get("/api/approvals").json(), [])
+
+
+class PartnerConnectionTests(ManagedBase):
+    """A client who shared their ad account with youradds is connected through the server's system token, which nobody sees."""
+    TOKEN = "SYSTEM-TOKEN-ZQXJ-QQKV"
+
+    def setUp(self):
+        super().setUp()
+        env = patch.dict(os.environ, {"META_SYSTEM_TOKEN": self.TOKEN})
+        env.start()
+        self.addCleanup(env.stop)
+        from app import creds
+        creds.save_partner(self.customer, "act_777", "100", "200")
+
+    def meta_card(self, subject="user_two"):
+        self.use(subject)
+        return [c for c in self.client.get("/api/connections").json() if c["service"] == "meta"][0]
+
+    def test_the_token_is_added_when_read_and_never_stored_or_shown(self):
+        from app import creds
+        self.assertEqual(creds.get(self.customer, "meta")["access_token"], self.TOKEN)
+        self.assertNotIn("access_token", creds.get(self.customer, "meta", raw=True))
+        with self.engine.connect() as c:
+            row = c.execute(text("SELECT source, expires_at, data FROM yourads.credentials WHERE service='meta'")).one()
+        self.assertEqual((row[0], row[1]), ("partner", None))
+        self.assertNotIn(self.TOKEN, creds._fernet().decrypt(row[2].encode()).decode())
+        card = self.meta_card()
+        self.assertEqual((card["connected"], card["partner"]), (True, True))
+        self.assertNotIn(self.TOKEN, str(self.client.get("/api/connections").json()))
+        self.assertNotIn(self.TOKEN[-4:], str(card))
+        self.assertTrue(self.client.get("/api/oauth/meta/state").json()["partner"])
+
+    def test_without_the_server_token_the_connection_does_not_work(self):
+        from app import creds
+        with patch.dict(os.environ, {"META_SYSTEM_TOKEN": ""}):
+            self.assertFalse(creds.connected(self.customer, "meta"))
+
+    def test_the_ad_account_is_owned_once_and_cannot_be_moved_by_the_client(self):
+        self.use("user_one")
+        r = self.client.put("/api/connections/meta", json={"values": {"access_token": "tok-1234567890", "ad_account_id": "act_777"}})
+        self.assertEqual(r.status_code, 409)
+        self.use("user_two")
+        for call in (lambda: self.client.put("/api/connections/meta", json={"values": {"ad_account_id": "act_888"}}),
+                     lambda: self.client.get("/api/oauth/meta/accounts"),
+                     lambda: self.client.post("/api/oauth/meta/select", json={"ad_account_id": "act_888"})):
+            self.assertEqual(call().status_code, 403)
+        from app import creds
+        self.assertEqual(creds.get(self.customer, "meta", raw=True)["ad_account_id"], "act_777")
+
+    def test_a_client_can_disconnect_or_replace_it_with_their_own_token(self):
+        from app import creds
+        self.use("user_two")
+        r = self.client.put("/api/connections/meta", json={"values": {"access_token": "own-token-1234567", "ad_account_id": "act_999"}})
+        self.assertEqual(r.status_code, 200)
+        stored = creds.get(self.customer, "meta", raw=True)
+        self.assertEqual((stored.get("partner"), stored["access_token"]), (None, "own-token-1234567"))
+        creds.save_partner(self.customer, "act_777")
+        self.assertEqual(self.client.delete("/api/connections/meta").status_code, 200)
+        self.assertEqual(creds.get(self.customer, "meta"), {})

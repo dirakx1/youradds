@@ -1,5 +1,5 @@
-import { auth } from './auth.js?v=brand-25';
-import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-25';
+import { auth } from './auth.js?v=brand-26';
+import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-26';
 
 const authPollers = new Set();
 
@@ -764,7 +764,8 @@ const views = {
         };
       };
       const note = flag ? `<p class="${flag === 'connected' ? 'st-active' : 'toast'}">${esc(t(flags[flag] || ''))}</p>` : '';
-      if (oa.has_token && oa.oauth && oa.needs_pick) picker();
+      if (oa.partner) metaBox.innerHTML = `<p>✅ ${t('Access shared with youradds')} · <b>${esc(oa.ad_account_id)}</b></p><p class="muted">${t('youradds manages this ad account for you. To take it back, disconnect it below and remove youradds in your Meta Business settings.')}</p>`;
+      else if (oa.has_token && oa.oauth && oa.needs_pick) picker();
       else if (oa.has_token && oa.oauth) {
         const soon = oa.expires_in_days != null && oa.expires_in_days <= 7;
         metaBox.innerHTML = `${note}<p>✅ ${t('Connected with Facebook')} · <b>${esc(oa.ad_account_name || oa.ad_account_id)}</b>${oa.expires_in_days != null ? ` · <span class="${soon ? 'st-warn' : 'muted'}">${t('expires in {n} day(s)', { n: Math.max(oa.expires_in_days, 0) })}</span>` : ''}</p>
