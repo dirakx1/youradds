@@ -337,3 +337,41 @@ class PartnerOnboardingTests(ManagedBase):
         self.client.post(self.url + "/connect", json=self.body)
         self.client.post(f"/api/staff/accounts/{self.customer}/mode", json={"mode": "self"})
         self.assertEqual(creds.get(self.customer, "meta", raw=True), {})
+
+
+class ManagedRequestTests(ManagedBase):
+    """A client can ask for managed mode; staff see the request and answer it by marking the account managed."""
+    def test_a_client_asks_staff_see_it_and_marking_the_account_answers_it(self):
+        self.use("user_two")
+        self.assertEqual(self.client.get("/api/managed/state").json()["mode"], "self")
+        first = self.client.post("/api/managed/request").json()
+        self.assertTrue(first["requested_at"])
+        self.assertEqual(self.client.post("/api/managed/request").json()["requested_at"], first["requested_at"])   # asking twice keeps the first time
+        self.assertEqual(self.client.get("/api/staff/requests").status_code, 403)
+        self.use("user_one")
+        waiting = self.client.get("/api/staff/requests").json()
+        self.assertEqual([(r["id"], r["email"]) for r in waiting], [(self.customer, "two@example.test")])
+        self.manage()
+        self.assertEqual(self.client.get("/api/staff/requests").json(), [])
+        self.use("user_two")
+        state = self.client.get("/api/managed/state").json()
+        self.assertEqual((state["mode"], state["requested_at"]), ("managed", None))
+        self.assertEqual(self.client.post("/api/managed/request").status_code, 409)
+
+    def test_a_client_can_withdraw_and_staff_cannot_ask_on_their_behalf(self):
+        self.use("user_two")
+        self.client.post("/api/managed/request")
+        self.assertIsNone(self.client.delete("/api/managed/request").json()["requested_at"])
+        self.use("user_one")
+        self.assertEqual(self.client.get("/api/staff/requests").json(), [])
+        self.manage(); self.act()
+        self.assertEqual(self.client.post("/api/managed/request").status_code, 403)
+
+    def test_the_state_shows_what_to_share_and_whether_access_is_connected(self):
+        from app import creds
+        with patch.dict(os.environ, {"YOURADS_BUSINESS_ID": "1234567890", "YOURADS_BUSINESS_NAME": "KubeAI LLC"}):
+            self.use("user_two")
+            s = self.client.get("/api/managed/state").json()
+            self.assertEqual((s["business_id"], s["business_name"], s["partner"]), ("1234567890", "KubeAI LLC", False))
+            creds.save_partner(self.customer, "act_9", "5")
+            self.assertTrue(self.client.get("/api/managed/state").json()["partner"])

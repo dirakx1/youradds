@@ -1,5 +1,5 @@
-import { auth } from './auth.js?v=brand-27';
-import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-27';
+import { auth } from './auth.js?v=brand-28';
+import { t, L, lang, locale, appPath, startI18n } from './i18n.js?v=brand-28';
 
 const authPollers = new Set();
 
@@ -781,18 +781,13 @@ const views = {
       }
     }
     loadStatus(false);
-    if (window.__youradsMe?.mode === 'managed' && !window.__youradsMe?.acting_as) {
-      const st = await api('/approvals/settings').catch(() => null);
-      if (st) {
-        el.insertAdjacentHTML('beforeend', `<div class="card"><h3>${t('Managed by youradds')}</h3><p class="muted">${t('youradds prepares your campaigns paused. By default you approve each one before money is spent.')}</p><label><input type="checkbox" id="staffact"${st.staff_activation ? ' checked' : ''}> ${t('Let youradds staff start campaigns without asking me each time')}</label></div>`);
-        $('#staffact', el).onchange = async e => { try { await api('/approvals/settings', { method: 'PUT', body: { staff_activation: e.target.checked } }); } catch (x) { e.target.checked = !e.target.checked; alert(x.message); } };
-      }
-    }
+    managedCards(el);
   },
 
   async staff(el) {
-    const rows = await api('/staff/accounts');
-    el.innerHTML = `<h2>${t('Accounts managed by youradds')}</h2>
+    const [rows, reqs] = await Promise.all([api('/staff/accounts'), api('/staff/requests')]);
+    el.innerHTML = `${reqs.length ? `<h2>${t('Requests to be managed')}</h2><table>${reqs.map(r => `<tr><td>${esc(r.email)}</td><td>${esc(r.name || '')}</td><td>${esc((r.requested_at || '').slice(0, 10))}</td><td><button type="button" class="pri" data-setreq="${r.id}">${t('Set as managed')}</button></td></tr>`).join('')}</table>` : ''}
+      <h2>${t('Accounts managed by youradds')}</h2>
       <p class="muted">${t('Open an account to work inside it. Everything you change there is recorded.')}</p>
       <table>${rows.map(a => `<tr><td>${esc(a.email)}</td><td>${esc(a.name || '')}</td><td><button type="button" data-open="${a.id}" data-email="${esc(a.email)}">${t('Open')}</button> <button type="button" data-log="${a.id}">${t('Activity')}</button> <button type="button" data-meta="${a.id}">${t('Meta access')}</button> <button type="button" data-end="${a.id}">${t('End management')}</button></td></tr>`).join('') || `<tr><td class="muted">${t('No managed accounts yet.')}</td></tr>`}</table>
       <form id="addm" class="stack"><label>${t('Find an account by email')}<input name="q" type="search" minlength="3" placeholder="name@example.com" required></label><button class="pri">${t('Search')}</button></form>
@@ -829,6 +824,7 @@ const views = {
       try {
         if (b.dataset.open) { await api(`/staff/accounts/${b.dataset.open}/open`, { method: 'POST' }); setActingAs({ id: +b.dataset.open }); location.hash = '#dashboard'; location.reload(); }
         else if (b.dataset.meta) await metaPanel(b.dataset.meta);
+        else if (b.dataset.setreq && confirm(t('Manage this account for the client?'))) { await api(`/staff/accounts/${b.dataset.setreq}/mode`, { method: 'POST', body: { mode: 'managed' } }); views.staff(el); }
         else if (b.dataset.log) { const log = await api('/staff/audit?account_id=' + b.dataset.log); $('#log', el).innerHTML = `<table>${log.map(r => `<tr><td>${esc(r.at)}</td><td>${esc(r.staff_email)}</td><td>${esc(r.action)}</td></tr>`).join('') || `<tr><td class="muted">${t('No activity yet.')}</td></tr>`}</table>`; }
         else if (b.dataset.end && confirm(t('Return this account to self-managed?'))) { await api(`/staff/accounts/${b.dataset.end}/mode`, { method: 'POST', body: { mode: 'self' } }); views.staff(el); }
       } catch (x) { alert(x.message); }
@@ -1078,6 +1074,43 @@ async function enterAuthPage() {
     if (auth.clerk?.session) { location.replace(L('/')); return; }
   } catch { /* Keep the auth form available if Clerk cannot initialize. */ }
   showAuth();
+}
+
+async function managedCards(el) {
+  const me = window.__youradsMe;
+  if (!me || me.acting_as) return;
+  const ms = await api('/managed/state').catch(() => null);
+  if (!ms) return;
+  const again = () => views.connections(el);
+  if (ms.mode !== 'managed') {
+    el.insertAdjacentHTML('beforeend', `<div class="card" id="mgreq"><h3>${t('Want youradds to run your ads?')}</h3>${ms.requested_at
+      ? `<p>${t('Request sent on {d}. youradds will set it up and contact you.', { d: esc(ms.requested_at.slice(0, 10)) })}</p><button type="button" data-cancel>${t('Cancel request')}</button>`
+      : `<p class="muted">${t('Our team prepares and manages your campaigns. You keep your ad account and your card, and you approve before money is spent.')}</p><button type="button" class="pri" data-ask>${t('Ask youradds to manage my ads')}</button>`}</div>`);
+    const box = $('#mgreq', el);
+    const go = (path, method) => async () => { try { await api(path, { method }); again(); } catch (x) { alert(x.message); } };
+    if ($('[data-ask]', box)) $('[data-ask]', box).onclick = go('/managed/request', 'POST');
+    if ($('[data-cancel]', box)) $('[data-cancel]', box).onclick = go('/managed/request', 'DELETE');
+    return;
+  }
+  const st = await api('/approvals/settings').catch(() => null);
+  if (st) {
+    el.insertAdjacentHTML('beforeend', `<div class="card"><h3>${t('Managed by youradds')}</h3><p class="muted">${t('youradds prepares your campaigns paused. By default you approve each one before money is spent.')}</p><label><input type="checkbox" id="staffact"${st.staff_activation ? ' checked' : ''}> ${t('Let youradds staff start campaigns without asking me each time')}</label></div>`);
+    $('#staffact', el).onchange = async e => { try { await api('/approvals/settings', { method: 'PUT', body: { staff_activation: e.target.checked } }); } catch (x) { e.target.checked = !e.target.checked; alert(x.message); } };
+  }
+  const STEPS = [
+    ['partner', ms.business_id ? `${t('In Meta Business settings open Partners and choose "Give a partner access to your assets". Enter this ID:')} <b>${esc(ms.business_id)}</b> (${esc(ms.business_name)}) <button type="button" data-copy="${esc(ms.business_id)}">${t('Copy')}</button>` : t('youradds will send you its business ID to enter in Meta Business settings, under Partners.'), 'https://business.facebook.com/settings/partners'],
+    ['adaccount', t('Share your ad account with that ID and allow it to manage campaigns.'), 'https://business.facebook.com/settings/ad-accounts'],
+    ['page', t('Share your Facebook Page with that ID and allow it to create ads. Add your Instagram account too if you have one.'), 'https://business.facebook.com/settings/pages'],
+    ['payment', t('Add a valid payment method to your ad account. You pay Meta directly.'), 'https://business.facebook.com/billing_hub/payment_settings'],
+    ['nondiscrimination', t("Certify Meta's non-discrimination policy."), 'https://www.facebook.com/certification/nondiscrimination'],
+  ];
+  const done = k => { try { return localStorage.getItem('managed:' + k) === '1'; } catch { return false; } };
+  el.insertAdjacentHTML('beforeend', `<div class="card" id="mgsteps"><h3>${t('Give youradds access to your ads')}</h3>
+    <ul class="ready">${STEPS.map(([k, text, url]) => `<li><label><input type="checkbox" data-step="${k}"${done(k) ? ' checked' : ''}> ${text}</label> <a href="${url}" target="_blank" rel="noopener">${t('Open')}</a></li>`).join('')}</ul>
+    <p class="${ms.partner ? 'st-active' : 'muted'}">${ms.partner ? '✅ ' + t('youradds has access to your ad account.') : t('When you finish, youradds checks the access and connects your account. You do not need to do anything else.')}</p></div>`);
+  const box = $('#mgsteps', el);
+  box.onchange = e => { const k = e.target.dataset.step; if (k) { try { localStorage.setItem('managed:' + k, e.target.checked ? '1' : ''); } catch {} } };
+  box.onclick = async e => { const b = e.target.closest('[data-copy]'); if (b) { try { await navigator.clipboard.writeText(b.dataset.copy); b.textContent = t('Copied'); } catch { prompt(t('Copy'), b.dataset.copy); } } };
 }
 
 async function loadApprovals() {

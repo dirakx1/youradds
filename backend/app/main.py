@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, update
 
-from . import ai, approvals, auth, brand, config, creds, partner
+from . import ai, approvals, auth, brand, config, creds, managed, partner
 from .auth import current_user
 from .config import PLATFORMS, validate_clerk_config
 from .db import check_database_revision, dispose_engine, engine, session_scope
@@ -44,6 +44,8 @@ app.include_router(auth.router)
 app.include_router(auth.staff_router)
 app.include_router(approvals.router)
 app.include_router(partner.router)
+app.include_router(managed.router)
+app.include_router(managed.staff_router)
 app.include_router(creds.router)
 app.include_router(oauth_meta.public)
 app.include_router(oauth_meta.router)
